@@ -20,7 +20,7 @@
 | スタッフ別詳細 | スタッフごとの担当一覧 |
 | 会場 | 会場地図の表示 |
 | 全体スケジュール管理 | セッションの追加・編集・削除 |
-| スタッフ管理 | スタッフの登録・スキル・希望・可用時間の管理 |
+| スタッフ管理 | スタッフの登録・一覧（タイル表示）。タイルをクリックすると詳細ページ (`/staffs/:id`) でスキル・希望・可用時間・配置一覧の確認と編集が可能 |
 | 部屋管理 | 部屋の追加・編集・削除 |
 | 会場地図 | フロアマップ画像のアップロード |
 | 配置アルゴリズム | スキル・希望・バランスを考慮した自動配置 |
@@ -64,7 +64,7 @@
 ## 技術構成
 
 - **Backend**: Python 3.11 + FastAPI + SQLAlchemy + SQLite
-- **Frontend**: Vue 3 (SFC) + Vue Router + Vite (パッケージマネージャ: pnpm)
+- **Frontend**: Vue 3 (SFC + TypeScript) + Vue Router + Vite (パッケージマネージャ: pnpm)
 - **Server**: Gunicorn + Uvicorn Worker
 
 ### フロントエンド構成
@@ -72,20 +72,23 @@
 ```
 frontend/
 ├── index.html          # Vite エントリ
-├── vite.config.js      # dev server の /api, /auth, /uploads, /public プロキシ設定
+├── vite.config.ts      # dev server の /api, /auth, /uploads, /public プロキシ設定
+├── tsconfig.json       # TypeScript 設定 (vue-tsc による型チェックをビルドに統合)
 ├── public/             # そのままコピーされる静的ファイル (login.html, setup.html, robots.txt)
 └── src/
-    ├── main.js         # アプリ初期化 (ルーター / グローバルコンポーネント登録)
+    ├── main.ts         # アプリ初期化 (ルーター / グローバルコンポーネント登録)
     ├── App.vue         # サイドバーレイアウト + 共通モーダル + <router-view>
-    ├── router.js       # ルート定義とタブ名⇔パスの対応
-    ├── store.js        # グローバルストア (全状態・API呼び出しを集約した composable)
+    ├── router.ts       # ルート定義とタブ名⇔パスの対応
+    ├── store.ts        # グローバルストア (全状態・API呼び出しを集約した composable)
+    ├── types.ts        # API レスポンスの型定義 (Room, Session, Staff, Assignment など)
     ├── assets/style.css
     ├── components/     # 共通コンポーネント (TlGrid など)
     └── views/          # ページ単位の SFC (全体スケジュール, スタッフ管理, 部屋管理, ...)
 ```
 
 各ページは URL パスで分かれています (例: `/` = 全体スケジュール, `/staffs` = スタッフ管理,
-`/groups/:id/manage` = セッショングループ管理)。リロード時は URL に基づいて同じページが復元されます。
+`/staffs/:id` = スタッフ詳細, `/groups/:id/manage` = セッショングループ管理)。
+リロード時は URL に基づいて同じページが復元されます。
 
 ## ローカル実行
 

@@ -6,6 +6,7 @@ import OverallManageView from './views/OverallManageView.vue'
 import GroupManageView from './views/GroupManageView.vue'
 import CategoryManageView from './views/CategoryManageView.vue'
 import StaffsView from './views/StaffsView.vue'
+import StaffDetailPageView from './views/StaffDetailPageView.vue'
 import RoomsView from './views/RoomsView.vue'
 import VenueMapsView from './views/VenueMapsView.vue'
 import OverallAssignView from './views/OverallAssignView.vue'
@@ -28,6 +29,7 @@ const routes = [
     { path: '/groups/:id(\\d+)/manage', component: GroupManageView, meta: { tab: (r) => `grp-${r.params.id}-manage` } },
     { path: '/categories/:key/manage', component: CategoryManageView, meta: { tab: (r) => `${r.params.key}-manage` } },
     { path: '/staffs', component: StaffsView, meta: { tab: 'staffs' } },
+    { path: '/staffs/:id(\\d+)', component: StaffDetailPageView, meta: { tab: 'staffs' } },
     { path: '/rooms', component: RoomsView, meta: { tab: 'rooms' } },
     { path: '/venue-maps', component: VenueMapsView, meta: { tab: 'venue-maps' } },
     { path: '/overall/assign', component: OverallAssignView, meta: { tab: 'overall-assign' } },

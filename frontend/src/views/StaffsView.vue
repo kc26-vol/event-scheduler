@@ -12,7 +12,7 @@
                     <label style="font-weight:600;font-size:0.9rem;display:block;margin-bottom:4px">プロフィール写真</label>
                     <input type="file" accept="image/jpeg,image/png,image/gif,image/webp"
                            @change="onNewStaffPhoto($event)" style="display:none">
-                    <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
+                    <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="pickFile($event)">ファイルを選択</button>
                     <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;margin-left:8px;padding:6px 10px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.8rem;color:#607d8b;cursor:text">クリックしてCtrl+Vで貼り付け</span>
                     <div v-if="staffPhotoPreview" style="margin-top:4px">
                         <button class="del-btn" @click="clearNewStaffPhoto">取り消し</button>
@@ -149,69 +149,126 @@
                 <button v-if="staffForm.editId" class="btn btn-danger" @click="cancelEditStaff">キャンセル</button>
             </div>
 
-            <div style="margin-top:20px">
-                <div v-for="s in staffs" :key="s.id" class="staff-detail-card" :style="staffForm.editId === s.id ? 'background:#fff3e0;outline:2px solid #ff9800' : ''">
-                    <div style="display:flex;justify-content:space-between;align-items:center">
-                        <div style="display:flex;align-items:center;gap:10px">
-                            <img v-if="s.photo" :src="s.photo" :alt="s.name" class="speaker-photo"
-                                 :style="staffForm.editId ? '' : 'cursor:pointer'"
-                                 @click="!staffForm.editId && triggerStaffPhotoInput(s.id)">
-                            <span v-else class="speaker-photo-placeholder"
-                                  :style="staffForm.editId ? '' : 'cursor:pointer'"
-                                  @click="!staffForm.editId && triggerStaffPhotoInput(s.id)">{{ s.name.charAt(0) }}</span>
-                            <input type="file" :id="'staffPhotoInput_'+s.id" accept="image/jpeg,image/png,image/gif,image/webp"
-                                   style="display:none" @change="uploadStaffPhoto(s.id, $event)">
-                            <h3 style="margin:0">
-                                {{ s.name }}
-                                <span v-if="s.slack_name" style="font-weight:normal;font-size:0.85rem;color:#888">( a.k.a {{ s.slack_name }} )</span>
-                                <span v-if="!s.role || !s.role.length" class="badge" style="background:#eceff1;color:#666">なし</span>
-                                <span class="badge" v-for="r in (Array.isArray(s.role) ? s.role : [s.role])" :key="r">{{ catLabel(r) }}</span>
-                                <span v-if="s.english_ok" class="badge" style="background:#e0f2f1;color:#00695c">EN</span>
-                                <span v-if="s.experience_count === 0" class="badge warn">初参加</span>
-                                <span v-else class="badge avail">{{ s.experience_count }}回目</span>
-                                <span class="badge" style="background:#e8f0fe;color:#1a73e8">担当: {{ staffAssignCount[s.id] || 0 }}件</span>
-                            </h3>
-                            <div v-if="s.emergency_contact" style="font-size:0.8rem;color:#888;margin-top:2px">緊急連絡先: {{ s.emergency_contact }}</div>
-                        </div>
-                        <div>
-                            <button class="btn btn-sm edit-btn" @click="editStaff(s)" style="margin-right:4px" :style="staffForm.editId === s.id ? 'background:#ff9800;color:#fff' : ''">{{ staffForm.editId === s.id ? '編集中' : '編集' }}</button>
-                            <button class="del-btn" @click="deleteStaff(s.id)">削除</button>
-                        </div>
-                    </div>
-                    <div style="margin-top:4px">
-                        <span style="font-size:0.8rem;color:#666">活動可能時間: </span>
-                        <template v-if="s.availabilities.length">
-                            <span class="badge avail" v-for="a in s.availabilities" :key="a.id">
-                                {{ fmt(a.start_time) }} - {{ fmtShort(a.end_time) }}
-                            </span>
-                        </template>
-                        <span v-else style="color:#999;font-size:0.85rem">制限なし（終日対応可能）</span>
-                    </div>
-                    <div v-if="s.preferred_sessions.length" style="margin-top:4px">
-                        <span style="font-size:0.8rem;color:#666">希望:</span>
-                        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;margin-top:4px">
-                            <span class="badge pref" v-for="p in sortedPrefs(s.preferred_sessions)" :key="p.id">
-                                第{{ p.priority }}希望: {{ p.session ? fmt(p.session.start_time) + ' ' + p.session.title : 'セッション ' + p.session_id }}
-                            </span>
-                        </div>
+            <!-- スタッフ一覧 (タイル表示) -->
+            <div class="staff-tile-grid">
+                <div v-for="s in staffs" :key="s.id" class="staff-tile" @click="openStaff(s.id)">
+                    <img v-if="s.photo" :src="s.photo" :alt="s.name" class="staff-tile-photo">
+                    <span v-else class="speaker-photo-placeholder staff-tile-photo">{{ s.name.charAt(0) }}</span>
+                    <div class="staff-tile-name">{{ s.name }}</div>
+                    <div v-if="s.slack_name" style="font-size:0.75rem;color:#888;margin-bottom:6px">{{ s.slack_name }}</div>
+                    <div>
+                        <span v-if="!s.role || !s.role.length" class="badge" style="background:#eceff1;color:#666">なし</span>
+                        <span class="badge" v-for="r in (Array.isArray(s.role) ? s.role : [s.role])" :key="r">{{ catLabel(r) }}</span>
+                        <span v-if="s.english_ok" class="badge" style="background:#e0f2f1;color:#00695c">EN</span>
+                        <span v-if="s.experience_count === 0" class="badge warn">初参加</span>
+                        <span class="badge" style="background:#e8f0fe;color:#1a73e8">担当: {{ staffAssignCount[s.id] || 0 }}件</span>
                     </div>
                 </div>
             </div>
         </div>
 </template>
 
-<script>
+<script setup lang="ts">
+import { useRouter } from 'vue-router'
 import { useStore } from '../store'
 
-export default {
-    setup() {
-        return useStore()
-    },
-    methods: {
-        // テンプレート内で document を直接参照できないためメソッド経由にする
-        triggerStaffPhotoInput(id) {
-            document.getElementById('staffPhotoInput_' + id).click()
-        },
-    },
+// ファイル選択ボタン (テンプレート内でのDOMキャストを避けるため関数化)
+function pickFile(e: MouseEvent) {
+    const el = (e.target as HTMLElement).parentElement?.querySelector('input[type=file]')
+    ;(el as HTMLInputElement | null)?.click()
+}
+
+const {
+    _enterTab, tab, sidebarOpen, rooms,
+    selectableRooms, overallRoomId, sessions, staffs,
+    schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,
+    scheduleMsgError, sessPhotoPreview, sessPhoto, roomForm,
+    sessForm, staffForm, roleDropdownOpen, prefForms,
+    availForms, ltTalks, venueMaps, venueMapForm,
+    venueMapPreview, venueMapInput, mapModal, switchTab,
+    catLabel, fmt, fmtShort, sortedPrefs,
+    autoSetEndTime, cancelEditRoom, editRoom, submitRoom,
+    deleteRoom, onVenueMapChange, cancelEditVenueMap, editVenueMap,
+    submitVenueMap, deleteVenueMap, sessDetailSession, sessDetailEntry,
+    sessDetailLocked, toggleSessionDetail, toggleSessDetailLock, gridMenu,
+    showGridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
+    isMultiSpeakerCat, onPhotoChange, onPhotoPaste, onLTTalkPhoto,
+    autoSetLTEndTime, toggleRepresentative, cancelEditSession, editSession,
+    submitSession, deleteSession, addLTTalk, calcStaffMsg,
+    calcStaffSummary, calcRequiredStaff, newStaffAvails, newAvailForm,
+    addNewStaffAvail, newStaffPrefs, newPrefForm, addNewStaffPref,
+    sessionTitle, sessionLabel, staffAssignCount, editingStaffPrefs,
+    editingStaffAvails, submitStaff, editStaff, cancelEditStaff,
+    deleteStaff, uploadStaffPhoto, deleteStaffPhoto, onNewStaffPhoto,
+    clearNewStaffPhoto, staffPhotoPreview, addPref, removePref,
+    addAvail, removeAvail, sessionSchedule, sessionGroups,
+    groupLocks, groupSessForms, groupStaffFilters, groupScheduleMsgs,
+    groupSelectedSessions, grpDateTabs, grpDates, grpDateFiltered,
+    groupSchedule, filteredGroupSchedule, filteredGroupSessions, groupSessionOpacity,
+    groupSessions, cancelEditGroupSession, editGroupSession, submitGroupSession,
+    deleteGroupSession, onGroupPhotoChange, autoAssignGroup, autoAssignGroupSelected,
+    autoAssignGroupFill, clearGroupAssignments, toggleGroupSessionSelect, toggleGroupSelectAll,
+    grpGridConfig, grpGridRooms, grpGridStyle, grpGridLabels,
+    grpSessionStyle, grpDragSessionStyle, onGrpDragStart, grpSelectedSession,
+    grpSelectedEntry, categories, dynamicCatKeys, categoryLocks,
+    categoryForms, categoryAssignMsgs, categoryStaffFilters, categorySessions,
+    catDates, catKeyDates, catGroupTabs, catGroupFiltered,
+    catTimelineByGroup, filteredCategorySessions, catSessionOpacity, cancelEditCategory,
+    editCategory, submitCategory, deleteCategory, autoAssignCategory,
+    clearCategoryAssignments, catSelectedSessions, autoAssignCategorySelected, autoAssignCategoryFill,
+    toggleCatSessionSelect, toggleCatSelectAll, catGridConfig, catGridRooms,
+    catGridStyle, catGridLabels, catSessionStyle, catDragSessionStyle,
+    onCatDragStart, catSelectedSession, catSelectedEntry, roleOptions,
+    assignStaffSelect, availableStaffs, addAssignment, removeAssignment,
+    setAllStaff, unsetAllStaff, addAssignmentOrAll, selectedSessions,
+    toggleSessionSelect, toggleSelectAll, autoAssign, autoAssignSelected,
+    autoAssignFill, clearAssignments, tlRooms, tlGridStyle,
+    tlLabels, tlSessionStyle, tlBreaks, matrixLocked,
+    drag, dragSessionStyle, onDragStart, dragCursor,
+    exportExcel, exportBackup, backupFileName, ioMsg,
+    ioMsgError, onBackupFileChange, importBackup, connpassTimeline,
+    speakerTemplate, connpassBaseUrl, generateConnpassTimeline, generateSpeakerTemplate,
+    copyToClipboard, resetAllData, resetMsg, resetMsgError,
+    resetPassword, resetPwForm, resetPwMsg, resetPwMsgError,
+    changeResetPassword, appTitle, allowOverlap, travelBufferMin,
+    settingsForm, settingsMsg, saveSettings, pwForm,
+    pwMsg, pwMsgError, changePassword, catSettingForm,
+    catSettingMsg, editCatSetting, cancelCatSetting, saveCatSetting,
+    deleteCatSetting, grpSettingForm, grpSettingMsg, editGrpSetting,
+    cancelGrpSetting, saveGrpSetting, deleteGrpSetting, sessionCatOptions,
+    extraSessionCats, defaultSessionCats, sessCatForm, sessCatMsg,
+    editSessCat, cancelSessCat, saveSessCat, deleteSessCat,
+    customRoles, roleSettingForm, roleSettingMsg, editRoleSetting,
+    cancelRoleSetting, saveRoleSetting, deleteRoleSetting, categoryRoleLinks,
+    catRoleLinkSelect, addCatRoleLink, removeCatRoleLink, groupRoleLinks,
+    grpRoleLinkSelect, addGrpRoleLink, removeGrpRoleLink, staffDetailFilter,
+    staffDetailMatch, matrixStaffFilter, matrixStaffOptions, overallSessions,
+    overallLocked, overallStaffFilter, overallAssignMsg, overallSelectedSessions,
+    overallDateTab, overallSchedule, overallDateFiltered, filteredOverallSchedule,
+    overallSessionOpacity, overallDates, toggleOverallSessionSelect, toggleOverallSelectAll,
+    autoAssignOverall, autoAssignOverallSelected, clearOverallAssignments, ovGridConfig,
+    ovGridRooms, ovGridStyle, ovGridLabels, ovSessionStyle,
+    ovDragSessionStyle, onOvDragStart, ovManageFiltered, ovManageGridStyle,
+    ovManageGridRooms, ovManageGridLabels, ovManageSessionStyle, ovManageDragSessionStyle,
+    onOvManageDragStart, allGroupTab, allStaffFilter, allSchedule,
+    allTimelineByGroup, allConfig, allColumns, allGridStyle,
+    allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
+    allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
+    cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
+    autoAssignAll, filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
+    CAT_BG, abSettings, abStatus, abHistory,
+    abMsg, abDownload, loadAbSettings, loadAbStatus,
+    loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,
+    downloadBackupEntry, pubApi, pubHistory, pubMsg,
+    pubMsgError, pubApiUrl, loadPubApiSettings, savePubApiSettings,
+    regenerateApiKey, clearGithubToken, publishSnapshot, loadPubHistory,
+    activateSnapshot, deleteSnapshot, copyApiUrl, copyApiKey,
+} = useStore()
+
+const router = useRouter()
+
+// タイルクリックでスタッフ詳細ページへ遷移
+function openStaff(id: number) {
+    router.push(`/staffs/${id}`)
 }
 </script>

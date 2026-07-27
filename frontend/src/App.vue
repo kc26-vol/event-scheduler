@@ -60,7 +60,7 @@
                 <div style="margin-bottom:16px">
                     <strong style="font-size:0.9rem;color:#555">{{ sessDetailSession.category === 'panel' ? 'パネリスト一覧' : 'LT登壇者一覧' }}</strong>
                     <div v-for="(t, idx) in sessDetailSession.lt_talks" :key="t.id" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0f0f0">
-                        <span style="font-weight:700;color:#1a73e8;min-width:24px">{{ idx + 1 }}.</span>
+                        <span style="font-weight:700;color:#1a73e8;min-width:24px">{{ Number(idx) + 1 }}.</span>
                         <img v-if="t.speaker_photo" :src="t.speaker_photo" :alt="t.speaker" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0">
                         <div v-else style="width:48px;height:48px;border-radius:50%;background:#1a73e8;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1rem;flex-shrink:0">{{ t.speaker.charAt(0) }}</div>
                         <div>
@@ -168,22 +168,105 @@
     </div>
 </template>
 
-<script>
+<script setup lang="ts">
 import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useStore, runInitialLoad, enterTab } from './store'
 import { routeToTab } from './router'
 
-export default {
-    setup() {
-        const route = useRoute()
-        onMounted(async () => {
-            await runInitialLoad()
-            // リロード時など初期ルートに応じたデータロードを保証する
-            const name = routeToTab(route)
-            if (name) await enterTab(name)
-        })
-        return useStore()
-    },
-}
+const route = useRoute()
+
+onMounted(async () => {
+    await runInitialLoad()
+    // リロード時など初期ルートに応じたデータロードを保証する
+    const name = routeToTab(route)
+    if (name) await enterTab(name)
+})
+
+const {
+    _enterTab, tab, sidebarOpen, rooms,
+    selectableRooms, overallRoomId, sessions, staffs,
+    schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,
+    scheduleMsgError, sessPhotoPreview, sessPhoto, roomForm,
+    sessForm, staffForm, roleDropdownOpen, prefForms,
+    availForms, ltTalks, venueMaps, venueMapForm,
+    venueMapPreview, venueMapInput, mapModal, switchTab,
+    catLabel, fmt, fmtShort, sortedPrefs,
+    autoSetEndTime, cancelEditRoom, editRoom, submitRoom,
+    deleteRoom, onVenueMapChange, cancelEditVenueMap, editVenueMap,
+    submitVenueMap, deleteVenueMap, sessDetailSession, sessDetailEntry,
+    sessDetailLocked, toggleSessionDetail, toggleSessDetailLock, gridMenu,
+    showGridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
+    isMultiSpeakerCat, onPhotoChange, onPhotoPaste, onLTTalkPhoto,
+    autoSetLTEndTime, toggleRepresentative, cancelEditSession, editSession,
+    submitSession, deleteSession, addLTTalk, calcStaffMsg,
+    calcStaffSummary, calcRequiredStaff, newStaffAvails, newAvailForm,
+    addNewStaffAvail, newStaffPrefs, newPrefForm, addNewStaffPref,
+    sessionTitle, sessionLabel, staffAssignCount, editingStaffPrefs,
+    editingStaffAvails, submitStaff, editStaff, cancelEditStaff,
+    deleteStaff, uploadStaffPhoto, deleteStaffPhoto, onNewStaffPhoto,
+    clearNewStaffPhoto, staffPhotoPreview, addPref, removePref,
+    addAvail, removeAvail, sessionSchedule, sessionGroups,
+    groupLocks, groupSessForms, groupStaffFilters, groupScheduleMsgs,
+    groupSelectedSessions, grpDateTabs, grpDates, grpDateFiltered,
+    groupSchedule, filteredGroupSchedule, filteredGroupSessions, groupSessionOpacity,
+    groupSessions, cancelEditGroupSession, editGroupSession, submitGroupSession,
+    deleteGroupSession, onGroupPhotoChange, autoAssignGroup, autoAssignGroupSelected,
+    autoAssignGroupFill, clearGroupAssignments, toggleGroupSessionSelect, toggleGroupSelectAll,
+    grpGridConfig, grpGridRooms, grpGridStyle, grpGridLabels,
+    grpSessionStyle, grpDragSessionStyle, onGrpDragStart, grpSelectedSession,
+    grpSelectedEntry, categories, dynamicCatKeys, categoryLocks,
+    categoryForms, categoryAssignMsgs, categoryStaffFilters, categorySessions,
+    catDates, catKeyDates, catGroupTabs, catGroupFiltered,
+    catTimelineByGroup, filteredCategorySessions, catSessionOpacity, cancelEditCategory,
+    editCategory, submitCategory, deleteCategory, autoAssignCategory,
+    clearCategoryAssignments, catSelectedSessions, autoAssignCategorySelected, autoAssignCategoryFill,
+    toggleCatSessionSelect, toggleCatSelectAll, catGridConfig, catGridRooms,
+    catGridStyle, catGridLabels, catSessionStyle, catDragSessionStyle,
+    onCatDragStart, catSelectedSession, catSelectedEntry, roleOptions,
+    assignStaffSelect, availableStaffs, addAssignment, removeAssignment,
+    setAllStaff, unsetAllStaff, addAssignmentOrAll, selectedSessions,
+    toggleSessionSelect, toggleSelectAll, autoAssign, autoAssignSelected,
+    autoAssignFill, clearAssignments, tlRooms, tlGridStyle,
+    tlLabels, tlSessionStyle, tlBreaks, matrixLocked,
+    drag, dragSessionStyle, onDragStart, dragCursor,
+    exportExcel, exportBackup, backupFileName, ioMsg,
+    ioMsgError, onBackupFileChange, importBackup, connpassTimeline,
+    speakerTemplate, connpassBaseUrl, generateConnpassTimeline, generateSpeakerTemplate,
+    copyToClipboard, resetAllData, resetMsg, resetMsgError,
+    resetPassword, resetPwForm, resetPwMsg, resetPwMsgError,
+    changeResetPassword, appTitle, allowOverlap, travelBufferMin,
+    settingsForm, settingsMsg, saveSettings, pwForm,
+    pwMsg, pwMsgError, changePassword, catSettingForm,
+    catSettingMsg, editCatSetting, cancelCatSetting, saveCatSetting,
+    deleteCatSetting, grpSettingForm, grpSettingMsg, editGrpSetting,
+    cancelGrpSetting, saveGrpSetting, deleteGrpSetting, sessionCatOptions,
+    extraSessionCats, defaultSessionCats, sessCatForm, sessCatMsg,
+    editSessCat, cancelSessCat, saveSessCat, deleteSessCat,
+    customRoles, roleSettingForm, roleSettingMsg, editRoleSetting,
+    cancelRoleSetting, saveRoleSetting, deleteRoleSetting, categoryRoleLinks,
+    catRoleLinkSelect, addCatRoleLink, removeCatRoleLink, groupRoleLinks,
+    grpRoleLinkSelect, addGrpRoleLink, removeGrpRoleLink, staffDetailFilter,
+    staffDetailMatch, matrixStaffFilter, matrixStaffOptions, overallSessions,
+    overallLocked, overallStaffFilter, overallAssignMsg, overallSelectedSessions,
+    overallDateTab, overallSchedule, overallDateFiltered, filteredOverallSchedule,
+    overallSessionOpacity, overallDates, toggleOverallSessionSelect, toggleOverallSelectAll,
+    autoAssignOverall, autoAssignOverallSelected, clearOverallAssignments, ovGridConfig,
+    ovGridRooms, ovGridStyle, ovGridLabels, ovSessionStyle,
+    ovDragSessionStyle, onOvDragStart, ovManageFiltered, ovManageGridStyle,
+    ovManageGridRooms, ovManageGridLabels, ovManageSessionStyle, ovManageDragSessionStyle,
+    onOvManageDragStart, allGroupTab, allStaffFilter, allSchedule,
+    allTimelineByGroup, allConfig, allColumns, allGridStyle,
+    allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
+    allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
+    cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
+    autoAssignAll, filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
+    CAT_BG, abSettings, abStatus, abHistory,
+    abMsg, abDownload, loadAbSettings, loadAbStatus,
+    loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,
+    downloadBackupEntry, pubApi, pubHistory, pubMsg,
+    pubMsgError, pubApiUrl, loadPubApiSettings, savePubApiSettings,
+    regenerateApiKey, clearGithubToken, publishSnapshot, loadPubHistory,
+    activateSnapshot, deleteSnapshot, copyApiUrl, copyApiKey,
+} = useStore()
 </script>

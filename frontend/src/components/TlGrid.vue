@@ -44,19 +44,30 @@
 </div>
 </template>
 
-<script>
+<script setup lang="ts">
 // タイムライングリッド共通コンポーネント
-export default {
-    props: {
-        gridStyle: { type: Object, default: () => ({}) },
-        rooms: { type: Array, default: () => [] },
-        labels: { type: Array, default: () => [] },
-        entries: { type: Array, default: () => [] },
-        color: { type: String, default: '#1a73e8' },
-        entryStyle: { type: Function, required: true },
-        fmtShort: { type: Function, required: true },
-        showSpeaker: { type: Boolean, default: false },
-    },
-    emits: ['select', 'dragstart'],
+interface Props {
+    gridStyle?: Record<string, any>
+    rooms?: [number, string][]
+    labels?: any[]
+    entries?: any[]
+    color?: string
+    entryStyle: (entry: any) => Record<string, any>
+    fmtShort: (iso: string) => string
+    showSpeaker?: boolean
 }
+
+withDefaults(defineProps<Props>(), {
+    gridStyle: () => ({}),
+    rooms: () => [],
+    labels: () => [],
+    entries: () => [],
+    color: '#1a73e8',
+    showSpeaker: false,
+})
+
+defineEmits<{
+    select: [sessionId: number, event: MouseEvent, entry: any]
+    dragstart: [event: MouseEvent | TouchEvent, entry: any]
+}>()
 </script>

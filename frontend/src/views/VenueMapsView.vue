@@ -9,7 +9,7 @@
                 <div class="form-group">
                     <label>地図画像</label>
                     <input type="file" ref="venueMapInput" accept="image/jpeg,image/png,image/gif,image/webp" @change="onVenueMapChange" style="display:none">
-                    <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
+                    <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="pickFile($event)">ファイルを選択</button>
                     <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;margin-left:8px;padding:6px 10px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.8rem;color:#607d8b;cursor:text">クリックしてCtrl+Vで貼り付け</span>
                     <div style="margin-top:8px">
                         <img v-if="venueMapPreview" :src="venueMapPreview" style="max-width:200px;max-height:120px;border-radius:4px;border:1px solid #ccc">
@@ -48,12 +48,99 @@
         </div>
 </template>
 
-<script>
+<script setup lang="ts">
 import { useStore } from '../store'
 
-export default {
-    setup() {
-        return useStore()
-    },
+// ファイル選択ボタン (テンプレート内でのDOMキャストを避けるため関数化)
+function pickFile(e: MouseEvent) {
+    const el = (e.target as HTMLElement).parentElement?.querySelector('input[type=file]')
+    ;(el as HTMLInputElement | null)?.click()
 }
+
+const {
+    _enterTab, tab, sidebarOpen, rooms,
+    selectableRooms, overallRoomId, sessions, staffs,
+    schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,
+    scheduleMsgError, sessPhotoPreview, sessPhoto, roomForm,
+    sessForm, staffForm, roleDropdownOpen, prefForms,
+    availForms, ltTalks, venueMaps, venueMapForm,
+    venueMapPreview, venueMapInput, mapModal, switchTab,
+    catLabel, fmt, fmtShort, sortedPrefs,
+    autoSetEndTime, cancelEditRoom, editRoom, submitRoom,
+    deleteRoom, onVenueMapChange, cancelEditVenueMap, editVenueMap,
+    submitVenueMap, deleteVenueMap, sessDetailSession, sessDetailEntry,
+    sessDetailLocked, toggleSessionDetail, toggleSessDetailLock, gridMenu,
+    showGridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
+    isMultiSpeakerCat, onPhotoChange, onPhotoPaste, onLTTalkPhoto,
+    autoSetLTEndTime, toggleRepresentative, cancelEditSession, editSession,
+    submitSession, deleteSession, addLTTalk, calcStaffMsg,
+    calcStaffSummary, calcRequiredStaff, newStaffAvails, newAvailForm,
+    addNewStaffAvail, newStaffPrefs, newPrefForm, addNewStaffPref,
+    sessionTitle, sessionLabel, staffAssignCount, editingStaffPrefs,
+    editingStaffAvails, submitStaff, editStaff, cancelEditStaff,
+    deleteStaff, uploadStaffPhoto, deleteStaffPhoto, onNewStaffPhoto,
+    clearNewStaffPhoto, staffPhotoPreview, addPref, removePref,
+    addAvail, removeAvail, sessionSchedule, sessionGroups,
+    groupLocks, groupSessForms, groupStaffFilters, groupScheduleMsgs,
+    groupSelectedSessions, grpDateTabs, grpDates, grpDateFiltered,
+    groupSchedule, filteredGroupSchedule, filteredGroupSessions, groupSessionOpacity,
+    groupSessions, cancelEditGroupSession, editGroupSession, submitGroupSession,
+    deleteGroupSession, onGroupPhotoChange, autoAssignGroup, autoAssignGroupSelected,
+    autoAssignGroupFill, clearGroupAssignments, toggleGroupSessionSelect, toggleGroupSelectAll,
+    grpGridConfig, grpGridRooms, grpGridStyle, grpGridLabels,
+    grpSessionStyle, grpDragSessionStyle, onGrpDragStart, grpSelectedSession,
+    grpSelectedEntry, categories, dynamicCatKeys, categoryLocks,
+    categoryForms, categoryAssignMsgs, categoryStaffFilters, categorySessions,
+    catDates, catKeyDates, catGroupTabs, catGroupFiltered,
+    catTimelineByGroup, filteredCategorySessions, catSessionOpacity, cancelEditCategory,
+    editCategory, submitCategory, deleteCategory, autoAssignCategory,
+    clearCategoryAssignments, catSelectedSessions, autoAssignCategorySelected, autoAssignCategoryFill,
+    toggleCatSessionSelect, toggleCatSelectAll, catGridConfig, catGridRooms,
+    catGridStyle, catGridLabels, catSessionStyle, catDragSessionStyle,
+    onCatDragStart, catSelectedSession, catSelectedEntry, roleOptions,
+    assignStaffSelect, availableStaffs, addAssignment, removeAssignment,
+    setAllStaff, unsetAllStaff, addAssignmentOrAll, selectedSessions,
+    toggleSessionSelect, toggleSelectAll, autoAssign, autoAssignSelected,
+    autoAssignFill, clearAssignments, tlRooms, tlGridStyle,
+    tlLabels, tlSessionStyle, tlBreaks, matrixLocked,
+    drag, dragSessionStyle, onDragStart, dragCursor,
+    exportExcel, exportBackup, backupFileName, ioMsg,
+    ioMsgError, onBackupFileChange, importBackup, connpassTimeline,
+    speakerTemplate, connpassBaseUrl, generateConnpassTimeline, generateSpeakerTemplate,
+    copyToClipboard, resetAllData, resetMsg, resetMsgError,
+    resetPassword, resetPwForm, resetPwMsg, resetPwMsgError,
+    changeResetPassword, appTitle, allowOverlap, travelBufferMin,
+    settingsForm, settingsMsg, saveSettings, pwForm,
+    pwMsg, pwMsgError, changePassword, catSettingForm,
+    catSettingMsg, editCatSetting, cancelCatSetting, saveCatSetting,
+    deleteCatSetting, grpSettingForm, grpSettingMsg, editGrpSetting,
+    cancelGrpSetting, saveGrpSetting, deleteGrpSetting, sessionCatOptions,
+    extraSessionCats, defaultSessionCats, sessCatForm, sessCatMsg,
+    editSessCat, cancelSessCat, saveSessCat, deleteSessCat,
+    customRoles, roleSettingForm, roleSettingMsg, editRoleSetting,
+    cancelRoleSetting, saveRoleSetting, deleteRoleSetting, categoryRoleLinks,
+    catRoleLinkSelect, addCatRoleLink, removeCatRoleLink, groupRoleLinks,
+    grpRoleLinkSelect, addGrpRoleLink, removeGrpRoleLink, staffDetailFilter,
+    staffDetailMatch, matrixStaffFilter, matrixStaffOptions, overallSessions,
+    overallLocked, overallStaffFilter, overallAssignMsg, overallSelectedSessions,
+    overallDateTab, overallSchedule, overallDateFiltered, filteredOverallSchedule,
+    overallSessionOpacity, overallDates, toggleOverallSessionSelect, toggleOverallSelectAll,
+    autoAssignOverall, autoAssignOverallSelected, clearOverallAssignments, ovGridConfig,
+    ovGridRooms, ovGridStyle, ovGridLabels, ovSessionStyle,
+    ovDragSessionStyle, onOvDragStart, ovManageFiltered, ovManageGridStyle,
+    ovManageGridRooms, ovManageGridLabels, ovManageSessionStyle, ovManageDragSessionStyle,
+    onOvManageDragStart, allGroupTab, allStaffFilter, allSchedule,
+    allTimelineByGroup, allConfig, allColumns, allGridStyle,
+    allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
+    allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
+    cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
+    autoAssignAll, filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
+    CAT_BG, abSettings, abStatus, abHistory,
+    abMsg, abDownload, loadAbSettings, loadAbStatus,
+    loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,
+    downloadBackupEntry, pubApi, pubHistory, pubMsg,
+    pubMsgError, pubApiUrl, loadPubApiSettings, savePubApiSettings,
+    regenerateApiKey, clearGithubToken, publishSnapshot, loadPubHistory,
+    activateSnapshot, deleteSnapshot, copyApiUrl, copyApiKey,
+} = useStore()
 </script>
