@@ -20,7 +20,7 @@
 | スタッフ別詳細 | スタッフごとの担当一覧 |
 | 会場 | 会場地図の表示 |
 | 全体スケジュール管理 | セッションの追加・編集・削除 |
-| スタッフ管理 | スタッフの登録・スキル・希望・可用時間の管理 |
+| スタッフ管理 | スタッフの登録・一覧（タイル表示）。タイルをクリックすると詳細ページ (`/staffs/:id`) でスキル・希望・可用時間・配置一覧の確認と編集が可能 |
 | 部屋管理 | 部屋の追加・編集・削除 |
 | 会場地図 | フロアマップ画像のアップロード |
 | 配置アルゴリズム | スキル・希望・バランスを考慮した自動配置 |
@@ -70,17 +70,60 @@
 ## 技術構成
 
 - **Backend**: Python 3.11 + FastAPI + SQLAlchemy + SQLite
-- **Frontend**: Vue 3 (CDN) + vanilla JS/CSS
+- **Frontend**: Vue 3 (SFC + TypeScript) + Vue Router + Vite (パッケージマネージャ: pnpm)
 - **Server**: Gunicorn + Uvicorn Worker
+
+### フロントエンド構成
+
+```
+frontend/
+├── index.html          # Vite エントリ
+├── vite.config.ts      # dev server の /api, /auth, /uploads, /public プロキシ設定
+├── tsconfig.json       # TypeScript 設定 (vue-tsc による型チェックをビルドに統合)
+├── public/             # そのままコピーされる静的ファイル (login.html, setup.html, robots.txt)
+└── src/
+    ├── main.ts         # アプリ初期化 (ルーター / グローバルコンポーネント登録)
+    ├── App.vue         # サイドバーレイアウト + 共通モーダル + <router-view>
+    ├── router.ts       # ルート定義とタブ名⇔パスの対応
+    ├── store.ts        # グローバルストア (全状態・API呼び出しを集約した composable)
+    ├── types.ts        # API レスポンスの型定義 (Room, Session, Staff, Assignment など)
+    ├── assets/style.css
+    ├── components/     # 共通コンポーネント (TlGrid など)
+    └── views/          # ページ単位の SFC (全体スケジュール, スタッフ管理, 部屋管理, ...)
+```
+
+各ページは URL パスで分かれています (例: `/` = 全体スケジュール, `/staffs` = スタッフ管理,
+`/staffs/:id` = スタッフ詳細, `/groups/:id/manage` = セッショングループ管理)。
+リロード時は URL に基づいて同じページが復元されます。
 
 ## ローカル実行
 
+フロントエンドのビルドが必要です (初回のみ + フロントエンド変更時)。
+
 ```bash
+# フロントエンドのビルド (要 pnpm)
+cd frontend
+pnpm install
+pnpm build
+cd ..
+
+# バックエンド起動 (ビルド成果物 frontend/dist を配信)
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ブラウザで http://localhost:8000 にアクセス。
+
+### フロントエンド開発 (ホットリロード)
+
+```bash
+# バックエンドを :8000 で起動した状態で
+cd frontend
+pnpm dev    # http://localhost:5173
+```
+
+Vite dev server が `/api`, `/auth`, `/uploads`, `/public` をバックエンド
+(デフォルト `http://localhost:8000`、`BACKEND_URL` 環境変数で変更可) にプロキシします。
 
 ## 環境変数
 
@@ -95,6 +138,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 | `IPINFO_TOKEN` | ipinfo.ioトークン | (なし) |
 
 ## デプロイ例
+
+デプロイ前にフロントエンドのビルド (`cd frontend && pnpm install && pnpm build`) を行い、
+`frontend/dist` をデプロイ物に含めてください。バックエンドは `frontend/dist` を静的配信します
+(見つからない場合は `frontend/public` のみ配信され、アプリ本体は表示されません)。
+
+> **uv 移行PR (#3) との関係について**: Azure (Oryx) の Python ビルドは `requirements.txt` を前提とします。
+> uv 移行PR (kc26-vol/event-scheduler#3) で `requirements.txt` が廃止される場合は、CI で
+> `uv export --format requirements-txt` などにより `requirements.txt` を生成してからデプロイするか、
+> 両PRのマージ後にデプロイ手順の整合を取ってください
+> ([.github/workflows/deploy.yml](.github/workflows/deploy.yml) に生成ステップのコメント例があります)。
 
 ### Azure Web Apps
 
@@ -150,32 +203,21 @@ az webapp config appsettings set \
 
 Azureポータルで発行プロファイルをダウンロードし、GitHubリポジトリの Settings > Secrets に `AZURE_WEBAPP_PUBLISH_PROFILE` として登録。
 
-`.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy to Azure App Service
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: <アプリ名>
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-```
+ワークフローファイルは [.github/workflows/deploy.yml](.github/workflows/deploy.yml) を参照してください
+(pnpm のセットアップ → `pnpm install` → `pnpm build` で `frontend/dist` を生成してからデプロイします)。
+`app-name` の `<アプリ名>` を実際の値に書き換えて使います。
 
 #### 方法2: Azure CLI で直接デプロイ
 
+いずれの方法でも、先にローカルでフロントエンドをビルドして `frontend/dist` を生成しておきます
+(Oryx のビルド `SCM_DO_BUILD_DURING_DEPLOYMENT` は Python 依存のインストールのみで、
+Node のビルドは実行されません)。
+
 ```bash
-# プロジェクトディレクトリで実行
+# フロントエンドのビルド (必須)
+cd frontend && pnpm install && pnpm build && cd ..
+
+# プロジェクトディレクトリで実行 (frontend/dist もアップロードされる)
 az webapp up \
   --name <アプリ名> \
   --resource-group <リソースグループ名> \
@@ -186,8 +228,11 @@ az webapp up \
 または ZIP デプロイ:
 
 ```bash
-# プロジェクトをZIPに圧縮
-zip -r deploy.zip . -x ".git/*" "data/*" "__pycache__/*" "*.pyc"
+# フロントエンドのビルド (必須)
+cd frontend && pnpm install && pnpm build && cd ..
+
+# プロジェクトをZIPに圧縮 (frontend/dist を含める)
+zip -r deploy.zip . -x ".git/*" "data/*" "__pycache__/*" "*.pyc" "frontend/node_modules/*"
 
 # デプロイ
 az webapp deploy \
@@ -199,7 +244,12 @@ az webapp deploy \
 
 スタートアップコマンドと環境変数の設定は方法1と同じです。
 
-#### 方法3: ローカルGitデプロイ
+#### 方法3: ローカルGitデプロイ (非推奨)
+
+`frontend/dist` は `.gitignore` で除外されているため、ローカルGitデプロイではビルド成果物が
+デプロイ物に含まれず、アプリ本体が表示されません。使う場合はデプロイ用ブランチで
+`frontend/dist` を強制的にコミット (`git add -f frontend/dist`) するなどの運用が必要です。
+**方法1 (GitHub Actions) または方法2 (Azure CLI) を推奨します。**
 
 ```bash
 # デプロイソースをローカルGitに設定

@@ -1,7 +1,43 @@
-const { createApp, ref, reactive, computed, onMounted } = Vue;
+// グローバルストア (旧 app.js のルートコンポーネントの状態・ロジックを集約)
+// シングルトンの composable として提供し、各ビューは <script setup> で
+// useStore() から必要な状態・関数を分割代入して使う。
+import { ref, reactive, computed } from 'vue'
+import type {
+    Room, Session, Staff, ScheduleEntry, StaffScheduleEntry,
+    Category, SessionGroup, VenueMap, SessionCatOption, CustomRole,
+    AutoBackupEntry, PublishSnapshot,
+} from './types'
 
-const app = createApp({
-    setup() {
+type Store = ReturnType<typeof _createStore>
+
+let _store: Store | null = null
+let _initialLoad: (() => Promise<void>) | null = null
+let _navigate: ((name: string) => void) | null = null
+
+// main.ts からルーター遷移関数を注入する (store -> router の直接依存を避けるため)
+export function setTabNavigator(fn: (name: string) => void) { _navigate = fn }
+
+export function useStore(): Store {
+    if (!_store) _store = _createStore()
+    return _store
+}
+
+// ルート遷移時に router.afterEach から呼ばれる (データロード等)
+export async function enterTab(name: string): Promise<void> {
+    return useStore()._enterTab(name)
+}
+
+// App.vue の onMounted から一度だけ呼ばれる初期ロード
+export async function runInitialLoad(): Promise<void> {
+    useStore()
+    if (_initialLoad) {
+        const f = _initialLoad
+        _initialLoad = null
+        await f()
+    }
+}
+
+function _createStore() {
         const API = '';
         const DEFAULT_SESSION_CATS = [
             { key: 'general', label: '一般' },
@@ -10,17 +46,17 @@ const app = createApp({
         ];
         const MULTI_SPEAKER_CATS = ['lt', 'panel'];
         function isMultiSpeakerCat(cat) { return MULTI_SPEAKER_CATS.includes(cat); }
-        const extraSessionCats = ref([]);
+        const extraSessionCats = ref<SessionCatOption[]>([]);
         const sessionCatOptions = computed(() => [...DEFAULT_SESSION_CATS, ...extraSessionCats.value]);
-        const customRoles = ref([]);
-        const categoryRoleLinks = ref({});
-        const groupRoleLinks = ref({});
+        const customRoles = ref<CustomRole[]>([]);
+        const categoryRoleLinks = ref<any>({});
+        const groupRoleLinks = ref<any>({});
         const STATIC_LABELS = { session: 'セッション', overall: '全体', tech: '技術' }; // tech: 廃止済み形式の既存データ用ラベル
         const SLOT_MIN = 5; // 5分刻み
 
         const tab = ref('all-matrix');
         const sidebarOpen = ref(false);
-        const rooms = ref([]);
+        const rooms = ref<Room[]>([]);
         const OVERALL_ROOM_NAME = '全体';
         // 「全体」部屋を除いた選択可能な部屋（通常のセッション用）
         const selectableRooms = computed(() => rooms.value.filter(r => r.name !== OVERALL_ROOM_NAME));
@@ -28,15 +64,15 @@ const app = createApp({
             const r = rooms.value.find(r => r.name === OVERALL_ROOM_NAME);
             return r ? r.id : null;
         });
-        const sessions = ref([]);
-        const staffs = ref([]);
-        const schedule = ref([]);
-        const staffAssignments = ref([]);
-        const scheduleMsg = ref(null);
+        const sessions = ref<Session[]>([]);
+        const staffs = ref<Staff[]>([]);
+        const schedule = ref<ScheduleEntry[]>([]);
+        const staffAssignments = ref<StaffScheduleEntry[]>([]);
+        const scheduleMsg = ref<any>(null);
         const scheduleMsgError = ref('');
         const scheduleDateTab = ref(0);  // 自動配置の対象日（0 = 未選択）
         const sessPhotoPreview = ref('');
-        const sessPhoto = ref(null);
+        const sessPhoto = ref<any>(null);
         const matrixStaffFilter = ref(0);
         const staffDetailFilter = ref('');
         function staffDetailMatch(staff) {
@@ -51,13 +87,13 @@ const app = createApp({
         const matrixLocked = ref(true); // ドラッグ&ドロップのロック（デフォルト: ロック）
 
         // --- 動的カテゴリ ---
-        const categories = ref([]);
-        const categoryLocks = reactive({});
-        const categoryForms = reactive({});
-        const categoryAssignMsgs = reactive({});
-        const categoryStaffFilters = reactive({});
-        const catGroupTabs = reactive({});
-        const catSelectedSessions = reactive({});
+        const categories = ref<Category[]>([]);
+        const categoryLocks = reactive<Record<string, any>>({});
+        const categoryForms = reactive<Record<string, any>>({});
+        const categoryAssignMsgs = reactive<Record<string, any>>({});
+        const categoryStaffFilters = reactive<Record<string, any>>({});
+        const catGroupTabs = reactive<Record<string, any>>({});
+        const catSelectedSessions = reactive<Record<string, any>>({});
 
         async function loadCategories() {
             categories.value = await (await fetch(API + '/api/categories/')).json();
@@ -68,7 +104,7 @@ const app = createApp({
                 if (!(c.key in categoryStaffFilters)) categoryStaffFilters[c.key] = 0;
                 const ckDates = catKeyDates(c.key);
                 if (!(c.key in catGroupTabs)) catGroupTabs[c.key] = 0;
-                if (!(c.key in catSelectedSessions)) catSelectedSessions[c.key] = new Set();
+                if (!(c.key in catSelectedSessions)) catSelectedSessions[c.key] = new Set<any>();
             });
             if (!catSettingForm.editId) catSettingForm.order = nextCatOrder();
         }
@@ -88,13 +124,13 @@ const app = createApp({
         });
 
         // --- 動的セッショングループ ---
-        const sessionGroups = ref([]);
-        const groupLocks = reactive({});
-        const groupSessForms = reactive({});
-        const groupStaffFilters = reactive({});
-        const groupScheduleMsgs = reactive({});
-        const groupSelectedSessions = reactive({});
-        const grpDateTabs = reactive({});
+        const sessionGroups = ref<SessionGroup[]>([]);
+        const groupLocks = reactive<Record<string, any>>({});
+        const groupSessForms = reactive<Record<string, any>>({});
+        const groupStaffFilters = reactive<Record<string, any>>({});
+        const groupScheduleMsgs = reactive<Record<string, any>>({});
+        const groupSelectedSessions = reactive<Record<string, any>>({});
+        const grpDateTabs = reactive<Record<string, any>>({});
 
         async function loadSessionGroups() {
             sessionGroups.value = await (await fetch(API + '/api/session-groups/')).json();
@@ -106,23 +142,23 @@ const app = createApp({
                         room_id: null, category: 'general', required_staff: 0, english_required: false,
                         description: '', notes: '', currentPhoto: '', photoPreview: '',
                         speaker_org: '', speaker_title: '', speaker_profile: '',
-                        _ltTalks: reactive([])
+                        _ltTalks: reactive<any[]>([])
                     };
                 } else if (!('photoPreview' in groupSessForms[g.id])) {
                     groupSessForms[g.id].photoPreview = '';
                 }
                 if (!(g.id in groupStaffFilters)) groupStaffFilters[g.id] = 0;
                 if (!(g.id in groupScheduleMsgs)) groupScheduleMsgs[g.id] = '';
-                if (!(g.id in groupSelectedSessions)) groupSelectedSessions[g.id] = new Set();
+                if (!(g.id in groupSelectedSessions)) groupSelectedSessions[g.id] = new Set<any>();
             });
             if (!grpSettingForm.editId) grpSettingForm.order = nextGrpOrder();
             // allGroupTabのデフォルトはloadSessions後に設定
         }
 
-        const roomForm = reactive({ editId: null, name: '', capacity: null, floor: 1 });
-        const venueMaps = ref([]);
-        const sessDetailSession = ref(null);
-        const gridMenu = reactive({ show: false, x: 0, y: 0, entry: null, type: '', key: '' });
+        const roomForm = reactive<any>({ editId: null, name: '', capacity: null, floor: 1 });
+        const venueMaps = ref<VenueMap[]>([]);
+        const sessDetailSession = ref<any>(null);
+        const gridMenu = reactive<any>({ show: false, x: 0, y: 0, entry: null, type: '', key: '' });
         function showGridMenu(ev, entry, type, key) {
             if (dragDidMove) return;
             ev.stopPropagation();
@@ -166,22 +202,22 @@ const app = createApp({
             if (gid && gid in groupLocks) return groupLocks[gid];
             return matrixLocked.value;
         });
-        const venueMapForm = reactive({ editId: null, title: '', order: 0, currentImage: '' });
+        const venueMapForm = reactive<any>({ editId: null, title: '', order: 0, currentImage: '' });
         const venueMapPreview = ref('');
-        const venueMapInput = ref(null);
-        const mapModal = ref(null);
-        const sessForm = reactive({
+        const venueMapInput = ref<any>(null);
+        const mapModal = ref<any>(null);
+        const sessForm = reactive<any>({
             editId: null, title: '', speaker: '', speaker_kana: '', start_time: '', end_time: '',
             room_id: null, category: 'general', required_staff: 0, english_required: false, description: '', notes: '', currentPhoto: '',
             speaker_org: '', speaker_title: '', speaker_profile: '', group_id: null
         });
-        const ltTalks = reactive([]);
-        const staffForm = reactive({ editId: null, name: '', slack_name: '', emergency_contact: '', role: [], experience_count: 0, english_ok: false, currentPhoto: '' });
+        const ltTalks = reactive<any[]>([]);
+        const staffForm = reactive<any>({ editId: null, name: '', slack_name: '', emergency_contact: '', role: [], experience_count: 0, english_ok: false, currentPhoto: '' });
         const roleDropdownOpen = ref(false);
-        const newStaffPhotoFile = ref(null);
+        const newStaffPhotoFile = ref<any>(null);
         const staffPhotoPreview = ref('');
-        const prefForms = reactive({});
-        const availForms = reactive({});
+        const prefForms = reactive<Record<string, any>>({});
+        const availForms = reactive<Record<string, any>>({});
 
         // --- ユーティリティ ---
         function autoSetEndTime(form) {
@@ -281,7 +317,7 @@ const app = createApp({
                 byRoom.get(s.room_id).push(s);
             }
             // Sort each room's sessions by start time
-            byRoom.forEach(list => list.sort((a, b) => new Date(a.start_time) - new Date(b.start_time)));
+            byRoom.forEach(list => list.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()));
 
             let md = '# タイムテーブル\n\n';
 
@@ -323,7 +359,7 @@ const app = createApp({
             const allSess = sessions.value.filter(s => !dynamicCatKeys.value.includes(s.category) && s.category !== 'overall');
             if (!allSess.length) { speakerTemplate.value = 'セッションが登録されていません。'; return; }
 
-            const sorted = [...allSess].sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+            const sorted = [...allSess].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
             const roomMap = {};
             rooms.value.forEach(r => roomMap[r.id] = r.name);
 
@@ -383,14 +419,14 @@ const app = createApp({
             }
         }
 
-        const backupFile = ref(null);
+        const backupFile = ref<any>(null);
         const backupFileName = ref('');
         const ioMsg = ref('');
         const ioMsgError = ref(false);
         const resetMsg = ref('');
         const resetMsgError = ref(false);
         const resetPassword = ref('');
-        const resetPwForm = reactive({ current: '', newPw: '' });
+        const resetPwForm = reactive<any>({ current: '', newPw: '' });
         const resetPwMsg = ref('');
         const resetPwMsgError = ref(false);
 
@@ -398,9 +434,9 @@ const app = createApp({
         const appTitle = ref('');
         const allowOverlap = ref(false);
         const travelBufferMin = ref(10);
-        const settingsForm = reactive({ app_title: '', allow_overlap: false, travel_buffer_minutes: 10, timezone: 'Asia/Tokyo' });
+        const settingsForm = reactive<any>({ app_title: '', allow_overlap: false, travel_buffer_minutes: 10, timezone: 'Asia/Tokyo' });
         const settingsMsg = ref('');
-        const pwForm = reactive({ current: '', newPw: '' });
+        const pwForm = reactive<any>({ current: '', newPw: '' });
         const pwMsg = ref('');
         const pwMsgError = ref(false);
 
@@ -454,7 +490,7 @@ const app = createApp({
         }
 
         // --- セッション形式管理 ---
-        const sessCatForm = reactive({ label: '', editIdx: null });
+        const sessCatForm = reactive<any>({ label: '', editIdx: null });
         const sessCatMsg = ref('');
         function editSessCat(idx) {
             const c = extraSessionCats.value[idx];
@@ -498,7 +534,7 @@ const app = createApp({
         }
 
         // --- 担当管理 ---
-        const roleSettingForm = reactive({ label: '', editIdx: null });
+        const roleSettingForm = reactive<any>({ label: '', editIdx: null });
         const roleSettingMsg = ref('');
         function editRoleSetting(idx) {
             const r = customRoles.value[idx];
@@ -536,7 +572,7 @@ const app = createApp({
             function _stripKey(src) {
                 const links = {};
                 let changed = false;
-                Object.entries(src).forEach(([k, keys]) => {
+                Object.entries(src as Record<string, any[]>).forEach(([k, keys]) => {
                     const filtered = keys.filter(x => x !== removedKey);
                     if (filtered.length !== keys.length) changed = true;
                     if (filtered.length) links[k] = filtered;
@@ -546,7 +582,7 @@ const app = createApp({
             const cat = _stripKey(categoryRoleLinks.value);
             const grp = _stripKey(groupRoleLinks.value);
             try {
-                const body = { custom_roles: JSON.stringify(list) };
+                const body: any = { custom_roles: JSON.stringify(list) };
                 if (cat.changed) body.category_role_links = JSON.stringify(cat.links);
                 if (grp.changed) body.group_role_links = JSON.stringify(grp.links);
                 await fetch(API + '/api/settings/', {
@@ -561,7 +597,7 @@ const app = createApp({
         }
 
         // --- カテゴリと担当の紐づけ ---
-        const catRoleLinkSelect = reactive({});
+        const catRoleLinkSelect = reactive<Record<string, any>>({});
         async function _saveCatRoleLinks(links) {
             await fetch(API + '/api/settings/', {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -587,7 +623,7 @@ const app = createApp({
         }
 
         // --- セッショングループと担当の紐づけ ---
-        const grpRoleLinkSelect = reactive({});
+        const grpRoleLinkSelect = reactive<Record<string, any>>({});
         async function _saveGrpRoleLinks(links) {
             await fetch(API + '/api/settings/', {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -635,7 +671,7 @@ const app = createApp({
         }
         // --- カテゴリ設定管理 ---
         function nextCatOrder() { return categories.value.length ? Math.max(...categories.value.map(c => c.order)) + 1 : 1; }
-        const catSettingForm = reactive({ editId: null, key: '', label: '', color: '#607d8b', order: 1 });
+        const catSettingForm = reactive<any>({ editId: null, key: '', label: '', color: '#607d8b', order: 1 });
         const catSettingMsg = ref('');
         function editCatSetting(cat) {
             catSettingForm.editId = cat.id;
@@ -655,7 +691,7 @@ const app = createApp({
         }
         async function saveCatSetting() {
             if (!catSettingForm.label) { catSettingMsg.value = '表示名は必須です'; return; }
-            const payload = { label: catSettingForm.label, color: catSettingForm.color, order: catSettingForm.order };
+            const payload: any = { label: catSettingForm.label, color: catSettingForm.color, order: catSettingForm.order };
             if (catSettingForm.editId && catSettingForm.key) payload.key = catSettingForm.key;
             try {
                 let resp;
@@ -690,7 +726,7 @@ const app = createApp({
 
         // --- セッショングループ設定管理 ---
         function nextGrpOrder() { return sessionGroups.value.length ? Math.max(...sessionGroups.value.map(g => g.order)) + 1 : 1; }
-        const grpSettingForm = reactive({ editId: null, label: '', date: '', order: 1, color: '#1a73e8' });
+        const grpSettingForm = reactive<any>({ editId: null, label: '', date: '', order: 1, color: '#1a73e8' });
         const grpSettingMsg = ref('');
         function editGrpSetting(grp) {
             grpSettingForm.editId = grp.id;
@@ -710,7 +746,7 @@ const app = createApp({
         }
         async function saveGrpSetting() {
             if (!grpSettingForm.label) { grpSettingMsg.value = '表示名は必須です'; return; }
-            const payload = { label: grpSettingForm.label, date: grpSettingForm.date, order: grpSettingForm.order, color: grpSettingForm.color };
+            const payload: any = { label: grpSettingForm.label, date: grpSettingForm.date, order: grpSettingForm.order, color: grpSettingForm.color };
             try {
                 let resp;
                 if (grpSettingForm.editId) {
@@ -769,7 +805,7 @@ const app = createApp({
                     ioMsgError.value = true;
                 }
             } catch (e) {
-                ioMsg.value = 'インポートに失敗しました: ' + e.message;
+                ioMsg.value = 'インポートに失敗しました: ' + (e as any).message;
                 ioMsgError.value = true;
             }
         }
@@ -798,7 +834,7 @@ const app = createApp({
                     resetMsgError.value = true;
                 }
             } catch (e) {
-                resetMsg.value = '初期化に失敗しました: ' + e.message;
+                resetMsg.value = '初期化に失敗しました: ' + (e as any).message;
                 resetMsgError.value = true;
             }
         }
@@ -822,15 +858,15 @@ const app = createApp({
                     resetPwMsgError.value = true;
                 }
             } catch (e) {
-                resetPwMsg.value = '変更に失敗しました: ' + e.message;
+                resetPwMsg.value = '変更に失敗しました: ' + (e as any).message;
                 resetPwMsgError.value = true;
             }
         }
 
         // --- Auto Backup ---
-        const abSettings = reactive({ enabled: false, schedule_type: 'interval', interval_minutes: 720, daily_time: '03:00', retention_count: 28 });
-        const abStatus = reactive({ running: false, last_run: null, last_status: null, next_run: null, error: null });
-        const abHistory = ref([]);
+        const abSettings = reactive<any>({ enabled: false, schedule_type: 'interval', interval_minutes: 720, daily_time: '03:00', retention_count: 28 });
+        const abStatus = reactive<any>({ running: false, last_run: null, last_status: null, next_run: null, error: null });
+        const abHistory = ref<AutoBackupEntry[]>([]);
         const abMsg = ref('');
         const abDownload = ref(false);
         async function loadAbSettings() {
@@ -908,11 +944,11 @@ const app = createApp({
         }
 
         // --- 公開API ---
-        const pubApi = reactive({ enabled: false, key: '', keyMasked: '', cors_origins: '*', active_snapshot: '', webhook_url: '', github_dispatch_url: '', github_token_set: false, github_token_input: '' });
-        const pubHistory = ref([]);
+        const pubApi = reactive<any>({ enabled: false, key: '', keyMasked: '', cors_origins: '*', active_snapshot: '', webhook_url: '', github_dispatch_url: '', github_token_set: false, github_token_input: '' });
+        const pubHistory = ref<PublishSnapshot[]>([]);
         const pubMsg = ref('');
         const pubMsgError = ref(false);
-        function _pubMsg(msg, isError) { pubMsg.value = msg; pubMsgError.value = !!isError; }
+        function _pubMsg(msg, isError?) { pubMsg.value = msg; pubMsgError.value = !!isError; }
         async function loadPubApiSettings() {
             try {
                 const data = await fetch(API + '/api/public-api/settings').then(r => r.json());
@@ -1012,7 +1048,7 @@ const app = createApp({
             navigator.clipboard.writeText(pubApi.key).then(function() { _pubMsg('APIキーをコピーしました'); });
         }
 
-        async function switchTab(name) {
+        async function _enterTab(name) {
             tab.value = name;
             sidebarOpen.value = false;
             if (name === 'rooms') await loadRooms();
@@ -1061,7 +1097,7 @@ const app = createApp({
         }
 
         // --- タブ自動更新ポーリング ---
-        let _tabPollTimer = null;
+        let _tabPollTimer: any = null;
         function _startTabPolling() {
             _stopTabPolling();
             _tabPollTimer = setInterval(function() {
@@ -1208,7 +1244,7 @@ const app = createApp({
         }
         function addLTTalk(gid) {
             if (gid !== undefined) {
-                if (!groupSessForms[gid]._ltTalks) groupSessForms[gid]._ltTalks = reactive([]);
+                if (!groupSessForms[gid]._ltTalks) groupSessForms[gid]._ltTalks = reactive<any[]>([]);
                 groupSessForms[gid]._ltTalks.push({ title: '', speaker: '', speaker_kana: '', speaker_org: '', speaker_title: '', speaker_photo: '', start_time: '', end_time: '', photoFile: null, photoPreview: '', is_representative: 0 });
             } else {
                 ltTalks.push({ title: '', speaker: '', speaker_kana: '', speaker_org: '', speaker_title: '', speaker_photo: '', start_time: '', end_time: '', photoFile: null, photoPreview: '', is_representative: 0 });
@@ -1267,7 +1303,7 @@ const app = createApp({
             if (sessPhoto.value) sessPhoto.value.value = '';
         }
         async function submitSession() {
-            const missing = [];
+            const missing: any[] = [];
             if (!sessForm.title) missing.push('セッション名');
             if (!dynamicCatKeys.value.includes(sessForm.category) && !isMultiSpeakerCat(sessForm.category) && !sessForm.speaker) missing.push('スピーカー');
             if (!sessForm.start_time) missing.push('開始時間');
@@ -1315,7 +1351,7 @@ const app = createApp({
         }
 
         const calcStaffMsg = ref('');
-        const calcStaffSummary = ref(null);
+        const calcStaffSummary = ref<any>(null);
         async function calcRequiredStaff() {
             const res = await fetch(API + '/api/sessions/calc-required-staff', { method: 'POST' });
             if (!res.ok) { alert('必要人数の計算に失敗しました'); return; }
@@ -1329,8 +1365,8 @@ const app = createApp({
         }
 
         // --- スタッフ ---
-        const newStaffAvails = reactive([]);
-        const newAvailForm = reactive({ start: '', end: '' });
+        const newStaffAvails = reactive<any[]>([]);
+        const newAvailForm = reactive<any>({ start: '', end: '' });
         function addNewStaffAvail() {
             if (!newAvailForm.start || !newAvailForm.end) return;
             newStaffAvails.push({ start_time: newAvailForm.start + ':00', end_time: newAvailForm.end + ':00' });
@@ -1338,8 +1374,8 @@ const app = createApp({
             newAvailForm.end = '';
         }
 
-        const newStaffPrefs = reactive([]);
-        const newPrefForm = reactive({ session_id: null, priority: 1 });
+        const newStaffPrefs = reactive<any[]>([]);
+        const newPrefForm = reactive<any>({ session_id: null, priority: 1 });
         function addNewStaffPref() {
             if (!newPrefForm.session_id) return;
             newStaffPrefs.push({ session_id: newPrefForm.session_id, priority: newPrefForm.priority || 1 });
@@ -1381,7 +1417,7 @@ const app = createApp({
             if (staffForm.experience_count === null || staffForm.experience_count === '' || staffForm.experience_count < 0) { alert('過去参加回数を入力してください'); return; }
             let slackName = (staffForm.slack_name || '').trim();
             if (slackName && !slackName.startsWith('@')) slackName = '@' + slackName;
-            const payload = { name: staffForm.name, slack_name: slackName, emergency_contact: (staffForm.emergency_contact || '').trim(), role: staffForm.role, experience_count: staffForm.experience_count, english_ok: staffForm.english_ok, max_hours: staffForm.max_hours || 8 };
+            const payload: any = { name: staffForm.name, slack_name: slackName, emergency_contact: (staffForm.emergency_contact || '').trim(), role: staffForm.role, experience_count: staffForm.experience_count, english_ok: staffForm.english_ok, max_hours: staffForm.max_hours || 8 };
             if (staffForm.editId) {
                 const res = await fetch(API + `/api/staffs/${staffForm.editId}`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1527,7 +1563,7 @@ const app = createApp({
         });
         // 全セッションの日付一覧を自動検出
         const catDates = computed(() => {
-            const dates = new Set();
+            const dates = new Set<any>();
             sessions.value.forEach(s => {
                 if (s.start_time) dates.add(s.start_time.slice(0, 10));
             });
@@ -1535,7 +1571,7 @@ const app = createApp({
         });
         // 特定カテゴリのセッションがある日付のみ返す
         function catKeyDates(catKey) {
-            const dates = new Set();
+            const dates = new Set<any>();
             sessions.value.filter(s => s.category === catKey).forEach(s => {
                 if (s.start_time) dates.add(s.start_time.slice(0, 10));
             });
@@ -1557,7 +1593,7 @@ const app = createApp({
             catDates.value.forEach(date => {
                 result[date] = sess
                     .filter(e => e.session.start_time && e.session.start_time.startsWith(date))
-                    .sort((a, b) => new Date(a.session.start_time) - new Date(b.session.start_time));
+                    .sort((a, b) => new Date(a.session.start_time).getTime() - new Date(b.session.start_time).getTime());
             });
             return result;
         }
@@ -1577,8 +1613,8 @@ const app = createApp({
             return _hasStaff(entry, filter) ? 1 : 0.15;
         }
 
-        const assignStaffSelect = reactive({});
-        const selectedSessions = reactive(new Set());
+        const assignStaffSelect = reactive<Record<string, any>>({});
+        const selectedSessions = reactive(new Set<any>());
         function toggleSessionSelect(id) {
             if (selectedSessions.has(id)) selectedSessions.delete(id);
             else selectedSessions.add(id);
@@ -1592,7 +1628,7 @@ const app = createApp({
             }
         }
 
-        function availableStaffs(entry, role) {
+        function availableStaffs(entry, role?) {
             const assignedIds = new Set(entry.assigned_staff.map(a => a.staff.id));
             const cat = entry.session.category;
             const targetRole = role || (cat === 'overall' ? 'overall' : (dynamicCatKeys.value.includes(cat) ? cat : 'session'));
@@ -1614,7 +1650,7 @@ const app = createApp({
                     const allowed = [targetRole, ...(categoryRoleLinks.value[targetRole] || [])];
                     const gid = entry.session.group_id;
                     if (gid && groupRoleLinks.value[gid]) allowed.push(...groupRoleLinks.value[gid]);
-                    const roles = Array.isArray(s.role) ? s.role : (s.role || '').split(',');
+                    const roles = Array.isArray(s.role) ? s.role : ((s.role as any) || '').split(',');
                     if (!roles.some(r => allowed.includes(r))) return false;
                 }
                 // 時間重複・別部屋移動時間チェック（重複許可設定時はスキップ）
@@ -1623,7 +1659,7 @@ const app = createApp({
                     for (const b of busy) {
                         if (sessStart < b.end && sessEnd > b.start) return false;
                         if (b.room !== sessRoom) {
-                            const gap = b.end <= sessStart ? (sessStart - b.end) : (b.start - sessEnd);
+                            const gap = b.end <= sessStart ? (sessStart.getTime() - b.end) : (b.start - sessEnd.getTime());
                             if (gap < TRAVEL_MS) return false;
                         }
                     }
@@ -1734,7 +1770,7 @@ const app = createApp({
 
         // 共通: 自動配置ヘルパー
         // 自動配置は日程ごとに実行する。targetDate は必須。
-        async function _doAutoAssign(targetDate, ids, fillOnly) {
+        async function _doAutoAssign(targetDate, ids?, fillOnly?) {
             const res = await fetch(API + '/api/assignments/auto-assign', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1770,7 +1806,7 @@ const app = createApp({
         // 共通: タイムライングリッド ラベル生成
         function _buildGridLabels(cfg) {
             if (!cfg) return [];
-            const labels = [];
+            const labels: any[] = [];
             const slotsPerLabel = 15 / SLOT_MIN;
             const labelCount = cfg.totalSlots / slotsPerLabel;
             for (let i = 0; i < labelCount; i++) {
@@ -1778,7 +1814,7 @@ const app = createApp({
                 const mins = t.getMinutes();
                 // 開始時刻が15分刻みに乗らない場合でも、行の範囲内にある00/30分の時刻を表示する
                 const rowEnd = new Date(t.getTime() + slotsPerLabel * cfg.slotMs);
-                let label = null;
+                let label: any = null;
                 for (const mark of [0, 30]) {
                     const cand = new Date(t);
                     cand.setMinutes(mark, 0, 0);
@@ -1847,7 +1883,7 @@ const app = createApp({
             return false;
         }
         // その日の全セッション（カテゴリ・グループを問わず）を配置する
-        async function autoAssignDay(day, fillOnly) {
+        async function autoAssignDay(day, fillOnly?) {
             if (!_requireDay(day)) return null;
             const confirmMsg = fillOnly
                 ? `${day} の未配置・不足分のみ配置します。既存の配置は維持されます。よろしいですか？`
@@ -1918,7 +1954,7 @@ const app = createApp({
         });
         // グループ内の日付一覧（sessions.valueから直接計算）
         function grpDates(gid) {
-            const dates = new Set();
+            const dates = new Set<any>();
             const defaultGid = sessionGroups.value.length ? sessionGroups.value[0].id : null;
             sessions.value.filter(s => s.group_id === gid || (s.group_id == null && gid === defaultGid)).forEach(s => {
                 if (s.start_time) dates.add(s.start_time.slice(0, 10));
@@ -1985,7 +2021,7 @@ const app = createApp({
                 speaker_org: s.speaker_org || '', speaker_title: s.speaker_title || '',
                 speaker_profile: s.speaker_profile || ''
             });
-            if (!groupSessForms[gid]._ltTalks) groupSessForms[gid]._ltTalks = reactive([]);
+            if (!groupSessForms[gid]._ltTalks) groupSessForms[gid]._ltTalks = reactive<any[]>([]);
             groupSessForms[gid]._ltTalks.splice(0);
             if (s.lt_talks && s.lt_talks.length) {
                 s.lt_talks.forEach(t => groupSessForms[gid]._ltTalks.push({
@@ -2005,7 +2041,7 @@ const app = createApp({
         }
         async function submitGroupSession(gid) {
             const form = groupSessForms[gid];
-            const missing = [];
+            const missing: any[] = [];
             if (!form.title) missing.push('セッション名');
             if (!dynamicCatKeys.value.includes(form.category) && !isMultiSpeakerCat(form.category) && !form.speaker) missing.push('スピーカー');
             if (!form.start_time) missing.push('開始時間');
@@ -2036,8 +2072,8 @@ const app = createApp({
             fd.append('description', form.description);
             fd.append('notes', form.notes);
             fd.append('group_id', gid);
-            const photoInput = document.querySelector(`[data-group-photo="${gid}"]`);
-            if (photoInput && photoInput.files[0]) fd.append('speaker_photo', photoInput.files[0]);
+            const photoInput = document.querySelector<HTMLInputElement>(`[data-group-photo="${gid}"]`);
+            if (photoInput?.files?.[0]) fd.append('speaker_photo', photoInput.files[0]);
 
             const sessionId = await _saveSession(fd, form.editId);
             if (!sessionId) return;
@@ -2082,13 +2118,13 @@ const app = createApp({
             }
         }
         function toggleGroupSessionSelect(gid, id) {
-            if (!groupSelectedSessions[gid]) groupSelectedSessions[gid] = new Set();
+            if (!groupSelectedSessions[gid]) groupSelectedSessions[gid] = new Set<any>();
             if (groupSelectedSessions[gid].has(id)) groupSelectedSessions[gid].delete(id);
             else groupSelectedSessions[gid].add(id);
         }
         function toggleGroupSelectAll(gid) {
             const all = groupSchedule.value[gid] || [];
-            if (!groupSelectedSessions[gid]) groupSelectedSessions[gid] = new Set();
+            if (!groupSelectedSessions[gid]) groupSelectedSessions[gid] = new Set<any>();
             if (groupSelectedSessions[gid].size === all.length) {
                 groupSelectedSessions[gid].clear();
             } else {
@@ -2142,7 +2178,7 @@ const app = createApp({
         function grpTimeToRow(gid, dt) { return _timeToRow(grpGridConfig(gid), dt); }
         function grpGridLabels(gid) { return _buildGridLabels(grpGridConfig(gid)); }
         function grpSessionStyle(gid, entry) { return _buildSessionStyle(grpGridConfig(gid), grpGridRooms(gid), entry); }
-        const grpSelectedSession = reactive({});
+        const grpSelectedSession = reactive<Record<string, any>>({});
         function grpSelectedEntry(gid) {
             const sid = grpSelectedSession[gid];
             if (!sid) return null;
@@ -2171,7 +2207,7 @@ const app = createApp({
             const form = categoryForms[catKey];
             const cat = categories.value.find(c => c.key === catKey);
             const catLabel = cat ? cat.label : catKey;
-            const missing = [];
+            const missing: any[] = [];
             if (!form.title) missing.push(catLabel + '名');
             if (!form.start_time) missing.push('開始時間');
             if (!form.end_time) missing.push('終了時間');
@@ -2236,13 +2272,13 @@ const app = createApp({
             if (catSelectedSessions[catKey]) catSelectedSessions[catKey].clear();
         }
         function toggleCatSessionSelect(catKey, id) {
-            if (!catSelectedSessions[catKey]) catSelectedSessions[catKey] = new Set();
+            if (!catSelectedSessions[catKey]) catSelectedSessions[catKey] = new Set<any>();
             if (catSelectedSessions[catKey].has(id)) catSelectedSessions[catKey].delete(id);
             else catSelectedSessions[catKey].add(id);
         }
         function toggleCatSelectAll(catKey) {
             const all = catGroupFiltered(catKey);
-            if (!catSelectedSessions[catKey]) catSelectedSessions[catKey] = new Set();
+            if (!catSelectedSessions[catKey]) catSelectedSessions[catKey] = new Set<any>();
             if (catSelectedSessions[catKey].size === all.length) {
                 catSelectedSessions[catKey].clear();
             } else {
@@ -2297,7 +2333,7 @@ const app = createApp({
         }
         const _isTouch = (e) => e.type && e.type.startsWith('touch');
 
-        const drag = reactive({
+        const drag = reactive<any>({
             active: false,    // ドラッグ中（閾値を超えた後）
             pending: false,   // mousedown済み、閾値未到達
             mode: null,       // 'move' | 'resize-top' | 'resize-bottom'
@@ -2337,7 +2373,7 @@ const app = createApp({
             // 各部屋ヘッダーの中心X座標を収集（列判定用）
             const headers = gridEl.querySelectorAll('.tl-room-header');
             const gridRect = gridEl.getBoundingClientRect();
-            const bounds = [];
+            const bounds: any[] = [];
             headers.forEach(h => {
                 const r = h.getBoundingClientRect();
                 bounds.push({
@@ -2554,7 +2590,7 @@ const app = createApp({
         }
 
         // グループ担当用ドラッグ開始
-        function onGrpDragStart(e, gid, entry, force) {
+        function onGrpDragStart(e, gid, entry, force?) {
             if (!_isTouch(e) && e.button !== 0) return;
             if (!force && groupLocks[gid]) return;
             e.preventDefault();
@@ -2613,7 +2649,7 @@ const app = createApp({
                 const rid = e.session.room_id;
                 if (map.has(rid)) map.get(rid).push(e.session);
             });
-            map.forEach(list => list.sort((a, b) => new Date(a.start_time) - new Date(b.start_time)));
+            map.forEach(list => list.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()));
             return map;
         });
 
@@ -2621,7 +2657,7 @@ const app = createApp({
         const tlBreaks = computed(() => {
             const cfg = tlConfig.value;
             if (!cfg) return [];
-            const breaks = [];
+            const breaks: any[] = [];
             tlRooms.value.forEach(([rid], ci) => {
                 const sessList = tlRoomSessions.value.get(rid) || [];
                 for (let i = 0; i < sessList.length - 1; i++) {
@@ -2676,7 +2712,7 @@ const app = createApp({
         function catTimeToRow(catKey, dt) { return _timeToRow(catGridConfig(catKey), dt); }
         function catGridLabels(catKey) { return _buildGridLabels(catGridConfig(catKey)); }
         function catSessionStyle(catKey, entry) { return _buildSessionStyle(catGridConfig(catKey), catGridRooms(catKey), entry); }
-        const catSelectedSession = reactive({});
+        const catSelectedSession = reactive<Record<string, any>>({});
         function catSelectedEntry(catKey) {
             const sid = catSelectedSession[catKey];
             if (!sid) return null;
@@ -2697,7 +2733,7 @@ const app = createApp({
             }
             return { ...catSessionStyle(catKey, entry), opacity: catSessionOpacity(catKey, entry), ...allSessionBg(catKey), cursor: 'grab' };
         }
-        function onCatDragStart(e, catKey, entry, force) {
+        function onCatDragStart(e, catKey, entry, force?) {
             if (!_isTouch(e) && e.button !== 0) return;
             if (!force && categoryLocks[catKey]) return;
             e.preventDefault();
@@ -2738,8 +2774,8 @@ const app = createApp({
         const overallLocked = ref(true);
         const overallStaffFilter = ref(0);
         const overallAssignMsg = ref('');
-        const overallSelectedSessions = reactive(new Set());
-        const overallDateTab = ref(0);
+        const overallSelectedSessions = reactive(new Set<any>());
+        const overallDateTab = ref<any>(0);
         const overallSchedule = computed(() => {
             return schedule.value.filter(e => e.session.category === 'overall');
         });
@@ -2760,7 +2796,7 @@ const app = createApp({
             return _hasStaff(entry, overallStaffFilter.value) ? 1 : 0.15;
         }
         function overallDates() {
-            const dates = new Set();
+            const dates = new Set<any>();
             sessions.value.filter(s => s.category === 'overall').forEach(s => {
                 if (s.start_time) dates.add(s.start_time.slice(0, 10));
             });
@@ -2953,9 +2989,9 @@ const app = createApp({
         }
 
         // --- 全体スケジュール（表示用） ---
-        const allGroupTab = ref(0); // 0=全日程, 日付文字列=日別
+        const allGroupTab = ref<any>(0); // 0=全日程, 日付文字列=日別
         const allStaffFilter = ref(0);
-        const allSelectedSession = ref(null);
+        const allSelectedSession = ref<any>(null);
         const allSelectedEntry = computed(() => {
             if (!allSelectedSession.value) return null;
             return allSchedule.value.find(e => e.session.id === allSelectedSession.value) || null;
@@ -2963,7 +2999,7 @@ const app = createApp({
         const allAssignMsg = ref('');
 
         // 全体スケジュール登録フォーム
-        const allOvForm = reactive({
+        const allOvForm = reactive<any>({
             editId: null, title: '', start_time: '', end_time: '', notes: ''
         });
         function cancelAllOverall() {
@@ -2976,10 +3012,10 @@ const app = createApp({
             const st = allOvForm.start_time; const et = allOvForm.end_time;
             fd.append('start_time', st.length === 16 ? st + ':00' : st);
             fd.append('end_time', et.length === 16 ? et + ':00' : et);
-            fd.append('room_id', overallRoomId.value || (rooms.value.length ? rooms.value[0].id : 1));
+            fd.append('room_id', String(overallRoomId.value || (rooms.value.length ? rooms.value[0].id : 1)));
             fd.append('category', 'overall');
-            fd.append('required_staff', 0);
-            fd.append('english_required', false);
+            fd.append('required_staff', '0');
+            fd.append('english_required', 'false');
             fd.append('notes', allOvForm.notes);
             fd.append('description', ''); fd.append('speaker_kana', '');
             fd.append('speaker_org', ''); fd.append('speaker_title', ''); fd.append('speaker_profile', '');
@@ -3015,7 +3051,7 @@ const app = createApp({
             if (allGroupTab.value && allGroupTab.value !== 0) {
                 list = list.filter(s => s.start_time && s.start_time.startsWith(allGroupTab.value));
             }
-            return list.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+            return list.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
         });
         const allSchedule = computed(() => {
             if (!allGroupTab.value) return schedule.value;
@@ -3037,7 +3073,7 @@ const app = createApp({
                 result[date] = schedule.value
                     .filter(e => e.session.start_time && e.session.start_time.startsWith(date))
                     .sort((a, b) => {
-                        const timeDiff = new Date(a.session.start_time) - new Date(b.session.start_time);
+                        const timeDiff = new Date(a.session.start_time).getTime() - new Date(b.session.start_time).getTime();
                         if (timeDiff !== 0) return timeDiff;
                         return catPriority(a.session.category) - catPriority(b.session.category);
                     });
@@ -3087,7 +3123,7 @@ const app = createApp({
         });
         // 全列 = 全体 + セッション部屋 + 動的カテゴリ列
         const allColumns = computed(() => {
-            const cols = [];
+            const cols: any[] = [];
             if (hasOverall.value) cols.push({ id: 'overall', name: '全体', type: 'overall' });
             allSessionRooms.value.forEach(([id, name]) => cols.push({ id, name, type: 'session' }));
             categories.value.forEach(c => {
@@ -3106,14 +3142,14 @@ const app = createApp({
             };
         });
         function allTimeToRow(dt) {
-            const cfg = allConfig.value;
+            const cfg = allConfig.value as any;
             const t = new Date(dt).getTime();
             return Math.round((t - cfg.minTime) / cfg.slotMs) + 2;
         }
         const allLabels = computed(() => {
             const cfg = allConfig.value;
             if (!cfg) return [];
-            const labels = [];
+            const labels: any[] = [];
             const slotsPerLabel = 15 / SLOT_MIN;
             const labelCount = cfg.totalSlots / slotsPerLabel;
             for (let i = 0; i < labelCount; i++) {
@@ -3121,7 +3157,7 @@ const app = createApp({
                 const mins = t.getMinutes();
                 // 開始時刻が15分刻みに乗らない場合でも、行の範囲内にある00/30分の時刻を表示する
                 const rowEnd = new Date(t.getTime() + slotsPerLabel * cfg.slotMs);
-                let label = null;
+                let label: any = null;
                 for (const mark of [0, 30]) {
                     const cand = new Date(t);
                     cand.setMinutes(mark, 0, 0);
@@ -3178,9 +3214,16 @@ const app = createApp({
             return _hasStaff(entry, allStaffFilter.value) ? 1 : 0.15;
         }
 
-        onMounted(async () => { await loadSessionGroups(); await loadCategories(); loadRooms(); loadStaffs(); loadSessions().then(() => loadSchedule()); loadSettings(); });
+        _initialLoad = (async () => { await loadSessionGroups(); await loadCategories(); loadRooms(); loadStaffs(); loadSessions().then(() => loadSchedule()); loadSettings(); });
 
-        return {
+        // タブ切り替え = ルート遷移。遷移後の afterEach が _enterTab を呼ぶ。
+        function switchTab(name) {
+            if (_navigate) { _navigate(name); return }
+            _enterTab(name)
+        }
+
+                return {
+            _enterTab,
             tab, sidebarOpen, rooms, selectableRooms, overallRoomId, sessions, staffs, schedule, staffAssignments, staffAssignmentsWithAll,
             scheduleMsg, scheduleMsgError, sessPhotoPreview, sessPhoto,
             roomForm, sessForm, staffForm, roleDropdownOpen, prefForms, availForms, ltTalks,
@@ -3248,27 +3291,8 @@ const app = createApp({
             matrixSessionOpacity, _hasStaff, CAT_BG,
             abSettings, abStatus, abHistory, abMsg, abDownload,
             loadAbSettings, loadAbStatus, loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry, downloadBackupEntry,
+            loadStaffAssignments,
             pubApi, pubHistory, pubMsg, pubMsgError, pubApiUrl,
             loadPubApiSettings, savePubApiSettings, regenerateApiKey, clearGithubToken, publishSnapshot, loadPubHistory, activateSnapshot, deleteSnapshot, copyApiUrl, copyApiKey,
         };
-    }
-});
-
-// タイムライングリッド共通コンポーネント
-app.component('tl-grid', {
-    template: '#tl-grid-template',
-    props: {
-        gridStyle: { type: Object, default: () => ({}) },
-        rooms: { type: Array, default: () => [] },
-        labels: { type: Array, default: () => [] },
-        entries: { type: Array, default: () => [] },
-        color: { type: String, default: '#1a73e8' },
-        entryStyle: { type: Function, required: true },
-        fmtShort: { type: Function, required: true },
-        showSpeaker: { type: Boolean, default: false },
-    },
-    emits: ['select', 'dragstart'],
-});
-
-app.mount('#app');
-
+}

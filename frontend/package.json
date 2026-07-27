@@ -1,0 +1,23 @@
+{
+  "name": "event-scheduler-frontend",
+  "private": true,
+  "version": "0.1.14",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.0.0",
+    "vue-tsc": "^3.3.8"
+  }
+}

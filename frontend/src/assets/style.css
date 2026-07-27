@@ -311,3 +311,39 @@ th { background: #f8f9fa; font-weight: 600; }
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
     z-index: 100; display: flex; align-items: center; justify-content: center;
 }
+
+/* スタッフ一覧タイル */
+.staff-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+    margin-top: 20px;
+}
+.staff-tile {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: box-shadow 0.15s, border-color 0.15s;
+}
+.staff-tile:hover {
+    border-color: #1a73e8;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+.staff-tile-photo {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin: 0 auto 8px;
+    display: block;
+    font-size: 1.6rem;
+    line-height: 64px;
+}
+.staff-tile-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 6px;
+}
