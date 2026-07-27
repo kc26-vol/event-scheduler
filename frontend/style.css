@@ -311,3 +311,8 @@ th { background: #f8f9fa; font-weight: 600; }
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
     z-index: 100; display: flex; align-items: center; justify-content: center;
 }
+/* 共通: 更新ボタンのスピナー */
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
+.refresh-icon { display: inline-block; }
+.refresh-icon.spinning { animation: refresh-spin 0.8s linear infinite; }
+button.btn:disabled { opacity: 0.6; cursor: default; }
