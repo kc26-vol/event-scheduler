@@ -34,6 +34,7 @@ const app = createApp({
         const staffAssignments = ref([]);
         const scheduleMsg = ref(null);
         const scheduleMsgError = ref('');
+        const scheduleDateTab = ref(0);  // 自動配置の対象日（0 = 未選択）
         const sessPhotoPreview = ref('');
         const sessPhoto = ref(null);
         const matrixStaffFilter = ref(0);
@@ -1732,16 +1733,39 @@ const app = createApp({
         }
 
         // 共通: 自動配置ヘルパー
-        async function _doAutoAssign(ids, fillOnly) {
+        // 自動配置は日程ごとに実行する。targetDate は必須。
+        async function _doAutoAssign(targetDate, ids, fillOnly) {
             const res = await fetch(API + '/api/assignments/auto-assign', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_ids: ids, fill_only: !!fillOnly })
+                body: JSON.stringify({
+                    target_date: targetDate || null,
+                    session_ids: ids || [],
+                    fill_only: !!fillOnly,
+                })
             });
-            if (!res.ok) { alert('自動配置に失敗しました'); return null; }
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json()).detail || ''; } catch (e) { /* noop */ }
+                alert(detail || '自動配置に失敗しました');
+                return null;
+            }
             const data = await res.json();
             await loadSchedule();
             return data;
         }
+        // 自動配置の結果メッセージを組み立てる
+        function _autoAssignMsg(data) {
+            const parts = [`${data.target_date} の配置完了: ${data.fully_assigned}/${data.total_sessions} セッション`];
+            parts.push(`(${data.assigned_slots}/${data.required_slots} 名)`);
+            if (data.skipped_sessions) parts.push(`／配置不要 ${data.skipped_sessions} 件`);
+            return parts.join(' ');
+        }
+        // 全日程で共通に使う日付一覧
+        const allEventDates = computed(() => {
+            const dates = new Set();
+            sessions.value.forEach(s => { if (s.start_time) dates.add(s.start_time.slice(0, 10)); });
+            return [...dates].sort();
+        });
 
         // 共通: タイムライングリッド ラベル生成
         function _buildGridLabels(cfg) {
@@ -1805,30 +1829,64 @@ const app = createApp({
             return { gridRow: `${startRow} / ${endRow}`, gridColumn: `${ci + 2}` };
         }
 
+        // --- 自動配置（日程ごと） ---
+        // 選択されたセッションIDが属する日付の一覧を返す
+        function _datesOfSessions(ids) {
+            const byId = new Map(sessions.value.map(s => [s.id, s]));
+            const days = new Set();
+            ids.forEach(id => {
+                const s = byId.get(id);
+                if (s && s.start_time) days.add(s.start_time.slice(0, 10));
+            });
+            return [...days].sort();
+        }
+        // 日程が未選択なら案内して中断する
+        function _requireDay(day) {
+            if (day && day !== 0) return true;
+            alert('自動配置は日程ごとに行います。日程タブから日付を選んでから実行してください。');
+            return false;
+        }
+        // その日の全セッション（カテゴリ・グループを問わず）を配置する
+        async function autoAssignDay(day, fillOnly) {
+            if (!_requireDay(day)) return null;
+            const confirmMsg = fillOnly
+                ? `${day} の未配置・不足分のみ配置します。既存の配置は維持されます。よろしいですか？`
+                : `${day} の全セッションを自動配置します。\n（セッション担当・受付案内・懇親会など、この日の全カテゴリが対象です）\nこの日の既存の配置は上書きされます。よろしいですか？`;
+            if (!confirm(confirmMsg)) return null;
+            return await _doAutoAssign(day, [], fillOnly);
+        }
+        // 選択したセッションのみ再配置する（複数日にまたがる選択は不可）
+        async function autoAssignSessionIds(ids) {
+            if (!ids.length) return null;
+            const days = _datesOfSessions(ids);
+            if (days.length > 1) {
+                alert(`自動配置は日程ごとに行います。選択が複数日にまたがっています（${days.join('、')}）。`);
+                return null;
+            }
+            if (!confirm(`${days[0]} の選択した${ids.length}件のセッションを再配置します。よろしいですか？`)) return null;
+            return await _doAutoAssign(days[0], ids);
+        }
+
         async function autoAssign() {
-            if (!confirm('スタッフを自動配置します。現在の配置はすべて上書きされます。よろしいですか？')) return;
-            const data = await _doAutoAssign(sessionSchedule.value.map(e => e.session.id));
+            const data = await autoAssignDay(scheduleDateTab.value);
             if (!data) return;
-            scheduleMsg.value = { type: 'success', text: `配置完了: ${data.fully_assigned}/${data.total_sessions} セッション` };
+            scheduleMsg.value = { type: 'success', text: _autoAssignMsg(data) };
             scheduleMsgError.value = data.understaffed && data.understaffed.length
                 ? '人員不足: ' + data.understaffed.map(u => u.session_title).join(', ') : '';
             selectedSessions.clear();
         }
         async function autoAssignSelected() {
-            const ids = [...selectedSessions];
-            if (!confirm(`選択した${ids.length}件のセッションを再配置します。よろしいですか？`)) return;
-            const data = await _doAutoAssign(ids);
+            const data = await autoAssignSessionIds([...selectedSessions]);
             if (!data) return;
-            scheduleMsg.value = { type: 'success', text: `再配置完了: ${data.fully_assigned}/${data.total_sessions} セッション` };
+            scheduleMsg.value = { type: 'success', text: _autoAssignMsg(data) };
             scheduleMsgError.value = data.understaffed && data.understaffed.length
                 ? '人員不足: ' + data.understaffed.map(u => u.session_title).join(', ') : '';
             selectedSessions.clear();
         }
         async function autoAssignFill() {
-            if (!confirm('未配置・不足分のみ配置します。既存の配置は維持されます。よろしいですか？')) return;
-            const data = await _doAutoAssign(sessionSchedule.value.map(e => e.session.id), true);
+            const data = await autoAssignDay(scheduleDateTab.value, true);
             if (!data) return;
-            scheduleMsg.value = { type: 'success', text: `配置完了: ${data.fully_assigned}/${data.total_sessions} セッション` };
+            scheduleMsg.value = { type: 'success', text: _autoAssignMsg(data) };
             scheduleMsgError.value = data.understaffed && data.understaffed.length
                 ? '人員不足: ' + data.understaffed.map(u => u.session_title).join(', ') : '';
             selectedSessions.clear();
@@ -1997,28 +2055,23 @@ const app = createApp({
             await loadSchedule();
         }
 
-        // グループ別自動配置
+        // グループ別自動配置（日程タブで選択中の日の全セッションが対象）
         async function autoAssignGroup(gid) {
-            if (!confirm('このグループのスタッフを自動配置します。現在の配置はすべて上書きされます。よろしいですか？')) return;
-            const data = await _doAutoAssign((groupSchedule.value[gid] || []).map(e => e.session.id));
+            const data = await autoAssignDay(grpDateTabs[gid]);
             if (!data) return;
-            groupScheduleMsgs[gid] = `配置完了: ${data.fully_assigned}/${data.total_sessions} セッション`;
+            groupScheduleMsgs[gid] = _autoAssignMsg(data);
             if (groupSelectedSessions[gid]) groupSelectedSessions[gid].clear();
         }
         async function autoAssignGroupSelected(gid) {
-            const ids = [...(groupSelectedSessions[gid] || [])];
-            if (!ids.length) return;
-            if (!confirm(`選択した${ids.length}件のセッションを再配置します。よろしいですか？`)) return;
-            const data = await _doAutoAssign(ids);
+            const data = await autoAssignSessionIds([...(groupSelectedSessions[gid] || [])]);
             if (!data) return;
-            groupScheduleMsgs[gid] = `再配置完了: ${data.fully_assigned}/${data.total_sessions} セッション`;
+            groupScheduleMsgs[gid] = _autoAssignMsg(data);
             if (groupSelectedSessions[gid]) groupSelectedSessions[gid].clear();
         }
         async function autoAssignGroupFill(gid) {
-            if (!confirm('未配置・不足分のみ配置します。既存の配置は維持されます。よろしいですか？')) return;
-            const data = await _doAutoAssign((groupSchedule.value[gid] || []).map(e => e.session.id), true);
+            const data = await autoAssignDay(grpDateTabs[gid], true);
             if (!data) return;
-            groupScheduleMsgs[gid] = `配置完了: ${data.fully_assigned}/${data.total_sessions} セッション`;
+            groupScheduleMsgs[gid] = _autoAssignMsg(data);
             if (groupSelectedSessions[gid]) groupSelectedSessions[gid].clear();
         }
         async function clearGroupAssignments(gid) {
@@ -2151,13 +2204,15 @@ const app = createApp({
             if (!res.ok) { alert('セッションの削除に失敗しました'); return; }
             await loadSessions(); await loadSchedule();
         }
+        // カテゴリタブの選択状態から対象日を取り出す（タブは日付文字列 or グループID）
+        function catTabDate(catKey) {
+            const tab = catGroupTabs[catKey];
+            return typeof tab === 'string' && tab ? tab : 0;
+        }
         async function autoAssignCategory(catKey) {
-            const cat = categories.value.find(c => c.key === catKey);
-            const label = cat ? cat.label : catKey;
-            if (!confirm(`${label}スタッフを自動配置します。現在の${label}配置は上書きされます。よろしいですか？`)) return;
-            const data = await _doAutoAssign((categorySessions.value[catKey] || []).map(e => e.session.id));
+            const data = await autoAssignDay(catTabDate(catKey));
             if (!data) return;
-            categoryAssignMsgs[catKey] = `配置完了: ${data.fully_assigned}/${data.total_sessions} 件`;
+            categoryAssignMsgs[catKey] = _autoAssignMsg(data);
         }
         async function clearCategoryAssignments(catKey) {
             const cat = categories.value.find(c => c.key === catKey);
@@ -2169,19 +2224,15 @@ const app = createApp({
             }
         }
         async function autoAssignCategorySelected(catKey) {
-            const ids = [...(catSelectedSessions[catKey] || [])];
-            if (!ids.length) return;
-            if (!confirm(`選択した${ids.length}件を再配置します。よろしいですか？`)) return;
-            const data = await _doAutoAssign(ids);
+            const data = await autoAssignSessionIds([...(catSelectedSessions[catKey] || [])]);
             if (!data) return;
-            categoryAssignMsgs[catKey] = `再配置完了: ${data.fully_assigned}/${data.total_sessions} 件`;
+            categoryAssignMsgs[catKey] = _autoAssignMsg(data);
             if (catSelectedSessions[catKey]) catSelectedSessions[catKey].clear();
         }
         async function autoAssignCategoryFill(catKey) {
-            if (!confirm('未配置・不足分のみ配置します。既存の配置は維持されます。よろしいですか？')) return;
-            const data = await _doAutoAssign((categorySessions.value[catKey] || []).map(e => e.session.id), true);
+            const data = await autoAssignDay(catTabDate(catKey), true);
             if (!data) return;
-            categoryAssignMsgs[catKey] = `配置完了: ${data.fully_assigned}/${data.total_sessions} 件`;
+            categoryAssignMsgs[catKey] = _autoAssignMsg(data);
             if (catSelectedSessions[catKey]) catSelectedSessions[catKey].clear();
         }
         function toggleCatSessionSelect(catKey, id) {
@@ -2728,17 +2779,14 @@ const app = createApp({
             }
         }
         async function autoAssignOverall() {
-            if (!confirm('全体スケジュールを自動配置します。よろしいですか？')) return;
-            const data = await _doAutoAssign(overallDateFiltered().map(e => e.session.id));
+            const data = await autoAssignDay(overallDateTab.value);
             if (!data) return;
-            overallAssignMsg.value = `配置完了: ${data.fully_assigned}/${data.total_sessions} 件`;
+            overallAssignMsg.value = _autoAssignMsg(data);
         }
         async function autoAssignOverallSelected() {
-            const ids = [...overallSelectedSessions];
-            if (!ids.length) return;
-            const data = await _doAutoAssign(ids);
+            const data = await autoAssignSessionIds([...overallSelectedSessions]);
             if (!data) return;
-            overallAssignMsg.value = `再配置完了: ${data.fully_assigned}/${data.total_sessions} 件`;
+            overallAssignMsg.value = _autoAssignMsg(data);
             overallSelectedSessions.clear();
         }
         async function clearOverallAssignments() {
@@ -2961,12 +3009,7 @@ const app = createApp({
             await loadSessions(); await loadSchedule();
         }
 
-        async function autoAssignAll() {
-            if (!confirm('全体を自動配置します。現在の配置は上書きされます。よろしいですか？')) return;
-            const data = await _doAutoAssign(allSchedule.value.map(e => e.session.id));
-            if (!data) return;
-            allAssignMsg.value = `配置完了: ${data.fully_assigned}/${data.total_sessions} 件`;
-        }
+        // 全日程一括の自動配置は廃止した。日程ごとに autoAssignDay(日付) を実行する。
         const overallSessions = computed(() => {
             let list = sessions.value.filter(s => s.category === 'overall');
             if (allGroupTab.value && allGroupTab.value !== 0) {
@@ -3173,6 +3216,7 @@ const app = createApp({
             assignStaffSelect, availableStaffs, addAssignment, removeAssignment, setAllStaff, unsetAllStaff, addAssignmentOrAll,
             selectedSessions, toggleSessionSelect, toggleSelectAll,
             autoAssign, autoAssignSelected, autoAssignFill, clearAssignments,
+            scheduleDateTab, allEventDates, autoAssignDay, autoAssignSessionIds, catTabDate,
             tlRooms, tlGridStyle, tlLabels, tlSessionStyle, tlBreaks,
             matrixLocked, drag, dragSessionStyle, onDragStart, dragCursor,
             exportExcel, exportBackup, backupFileName, ioMsg, ioMsgError, onBackupFileChange, importBackup,
@@ -3199,7 +3243,7 @@ const app = createApp({
             allGroupTab, allStaffFilter, allSchedule, allTimelineByGroup, allConfig, allColumns, allGridStyle, allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
             allSelectedSession, allSelectedEntry, allAssignMsg,
             allOvForm, cancelAllOverall, submitAllOverall,
-            editAllEntry, deleteAllEntry, autoAssignAll,
+            editAllEntry, deleteAllEntry,
             filteredMatrixSchedule,
             matrixSessionOpacity, _hasStaff, CAT_BG,
             abSettings, abStatus, abHistory, abMsg, abDownload,

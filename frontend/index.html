@@ -523,10 +523,15 @@
 
             <!-- 自動配置ボタン -->
             <div v-if="!overallLocked" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-                <button class="btn btn-success" @click="autoAssignOverall()">スタッフ自動配置</button>
+                <button v-if="overallDateTab && overallDateTab !== 0" class="btn btn-success" @click="autoAssignOverall()">
+                    {{ overallDateTab }} を自動配置
+                </button>
                 <button class="btn" style="background:#1a73e8" @click="autoAssignOverallSelected()" :disabled="!overallSelectedSessions.size">選択して再配置 <span v-if="overallSelectedSessions.size">({{ overallSelectedSessions.size }}件)</span></button>
                 <button class="btn btn-danger" @click="clearOverallAssignments()">配置をクリア</button>
                 <div v-if="overallAssignMsg" class="msg success" style="margin:0">{{ overallAssignMsg }}</div>
+            </div>
+            <div v-if="!overallLocked && (!overallDateTab || overallDateTab === 0)" style="margin-bottom:12px;font-size:0.85rem;color:#b06000;background:#fff8e1;border-radius:6px;padding:8px 12px">
+                自動配置は日程ごとに実行します。上の日程タブから日付を選んでください。選んだ日の全セッション（全カテゴリ）がまとめて配置されます。
             </div>
 
             <!-- スタッフフィルター -->
@@ -570,6 +575,7 @@
                                     <template v-else-if="entry.assigned_staff.length">
                                         <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id">{{ a.staff.name }}</span>
                                     </template>
+                                    <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                     <span v-else class="badge warn">未配置</span>
                                 </div>
                             </div>
@@ -605,6 +611,7 @@
                                             <button v-if="!overallLocked" @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
                                         </span>
                                     </template>
+                                    <span v-else-if="e.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                     <span v-else class="badge warn">未配置</span>
                                 </template>
                                 <template v-if="!overallLocked">
@@ -651,11 +658,16 @@
 
             <!-- 自動配置ボタン -->
             <div v-if="!groupLocks[grp.id]" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-                <button class="btn btn-success" @click="autoAssignGroup(grp.id)">スタッフ自動配置</button>
+                <button v-if="grpDateTabs[grp.id] && grpDateTabs[grp.id] !== 0" class="btn btn-success" @click="autoAssignGroup(grp.id)">
+                    {{ grpDateTabs[grp.id] }} を自動配置
+                </button>
                 <button class="btn" style="background:#1a73e8" @click="autoAssignGroupSelected(grp.id)" :disabled="!(groupSelectedSessions[grp.id] && groupSelectedSessions[grp.id].size)">選択して再配置 <span v-if="groupSelectedSessions[grp.id] && groupSelectedSessions[grp.id].size">({{ groupSelectedSessions[grp.id].size }}件)</span></button>
-                <button class="btn" style="background:#f9ab00" @click="autoAssignGroupFill(grp.id)">未配置を埋める</button>
+                <button v-if="grpDateTabs[grp.id] && grpDateTabs[grp.id] !== 0" class="btn" style="background:#f9ab00" @click="autoAssignGroupFill(grp.id)">未配置を埋める</button>
                 <button class="btn btn-danger" @click="clearGroupAssignments(grp.id)">配置をクリア</button>
                 <span v-if="groupScheduleMsgs[grp.id]" style="font-size:0.85rem;color:#137333">{{ groupScheduleMsgs[grp.id] }}</span>
+            </div>
+            <div v-if="!groupLocks[grp.id] && (!grpDateTabs[grp.id] || grpDateTabs[grp.id] === 0)" style="margin-bottom:12px;font-size:0.85rem;color:#b06000;background:#fff8e1;border-radius:6px;padding:8px 12px">
+                自動配置は日程ごとに実行します。上の日程タブから日付を選んでください。選んだ日の全セッション（全カテゴリ）がまとめて配置されます。
             </div>
 
             <!-- 必要スタッフ計算 -->
@@ -714,6 +726,7 @@
                                 <template v-if="entry.assigned_staff.length">
                                     <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id" style="font-size:0.7rem">{{ a.staff.name }}</span>
                                 </template>
+                                <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368;font-size:0.7rem">配置不要</span>
                                 <span v-else class="badge warn" style="font-size:0.7rem">未配置</span>
                             </div>
                         </div>
@@ -740,6 +753,7 @@
                                         <button v-if="!groupLocks[grp.id]" @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
                                     </span>
                                 </template>
+                                <span v-else-if="e.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                 <span v-else class="badge warn">未配置</span>
                                 <template v-if="!groupLocks[grp.id]">
                                     <select v-model.number="assignStaffSelect[e.session.id]" style="padding:2px 6px;font-size:0.8rem;border:1px solid #ccc;border-radius:4px;margin-left:4px">
@@ -864,11 +878,16 @@
             </div>
 
             <div v-if="!categoryLocks[cat.key]" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-                <button class="btn btn-success" @click="autoAssignCategory(cat.key)">スタッフ自動配置</button>
+                <button v-if="catTabDate(cat.key)" class="btn btn-success" @click="autoAssignCategory(cat.key)">
+                    {{ catTabDate(cat.key) }} を自動配置
+                </button>
                 <button class="btn" style="background:#1a73e8" @click="autoAssignCategorySelected(cat.key)" :disabled="!(catSelectedSessions[cat.key] && catSelectedSessions[cat.key].size)">選択して再配置 <span v-if="catSelectedSessions[cat.key] && catSelectedSessions[cat.key].size">({{ catSelectedSessions[cat.key].size }}件)</span></button>
-                <button class="btn" style="background:#f9ab00" @click="autoAssignCategoryFill(cat.key)">未配置を埋める</button>
+                <button v-if="catTabDate(cat.key)" class="btn" style="background:#f9ab00" @click="autoAssignCategoryFill(cat.key)">未配置を埋める</button>
                 <button class="btn btn-danger" @click="clearCategoryAssignments(cat.key)">配置をクリア</button>
                 <div v-if="categoryAssignMsgs[cat.key]" class="msg success" style="margin:0">{{ categoryAssignMsgs[cat.key] }}</div>
+            </div>
+            <div v-if="!categoryLocks[cat.key] && !catTabDate(cat.key)" style="margin-bottom:12px;font-size:0.85rem;color:#b06000;background:#fff8e1;border-radius:6px;padding:8px 12px">
+                自動配置は日程ごとに実行します。上の日程タブから日付を選んでください。選んだ日の全セッション（全カテゴリ）がまとめて配置されます。
             </div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
                 <label style="font-weight:600;font-size:0.9rem">スタッフ絞り込み:</label>
@@ -918,6 +937,7 @@
                                     <template v-if="entry.assigned_staff.length">
                                         <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id" style="font-size:0.7rem">{{ a.staff.name }}</span>
                                     </template>
+                                    <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368;font-size:0.7rem">配置不要</span>
                                     <span v-else class="badge warn" style="font-size:0.7rem">未配置</span>
                                 </div>
                             </div>
@@ -946,6 +966,7 @@
                                             <button v-if="!categoryLocks[cat.key]" @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
                                         </span>
                                     </template>
+                                    <span v-else-if="e.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                     <span v-else class="badge warn">未配置</span>
                                     <template v-if="!categoryLocks[cat.key]">
                                         <select v-model.number="assignStaffSelect[e.session.id]" style="padding:2px 6px;font-size:0.8rem;border:1px solid #ccc;border-radius:4px;margin-left:4px">
@@ -1048,6 +1069,7 @@
                                 <template v-else-if="entry.assigned_staff.length">
                                     <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id">{{ a.staff.name }}</span>
                                 </template>
+                                <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                 <span v-else class="badge warn">未配置</span>
                             </div>
                         </div>
@@ -1082,6 +1104,7 @@
                                 <template v-else-if="entry.assigned_staff.length">
                                     <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id" style="font-size:0.7rem">{{ a.staff.name }}</span>
                                 </template>
+                                <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368;font-size:0.7rem">配置不要</span>
                                 <span v-else class="badge warn" style="font-size:0.7rem">未配置</span>
                             </div>
                         </div>
@@ -1280,8 +1303,20 @@
                     <li><strong>活動可能時間:</strong> スタッフの活動可能時間帯にセッション全体が収まること（未設定の場合は制約なし）</li>
                     <li><strong>時間重複:</strong> 既に配置済みの別セッションと時間が重複しないこと</li>
                     <li><strong>移動時間:</strong> 別部屋のセッションへは最低10分の間隔があること</li>
-                    <li><strong>最大稼働時間:</strong> スタッフの合計稼働時間が上限を超えないこと</li>
+                    <li><strong>最大稼働時間:</strong> <strong>その日の</strong>合計稼働時間が上限（max_hours）を超えないこと。前日までの担当は上限を消費しません</li>
                     <li><strong>配置人数:</strong> 各セッションに設定された必要人数どおりに配置（必要人数0は配置しない）</li>
+                </ul>
+            </div>
+
+            <!-- 実行単位 -->
+            <div style="background:#e8f0fe;border:1px solid #a8c7fa;border-radius:8px;padding:16px 20px;margin-bottom:16px">
+                <h3 style="margin:0 0 8px;font-size:1rem;color:#174ea6">実行単位は「1日」</h3>
+                <ul style="margin:0;padding-left:20px;font-size:0.9rem;color:#555;line-height:1.8">
+                    <li>自動配置は<strong>日程ごと</strong>に実行します。全日程を一括で配置する機能はありません</li>
+                    <li>日付を選んで実行すると、<strong>その日の全カテゴリ</strong>（セッション担当・受付案内・懇親会など）がまとめて配置されます</li>
+                    <li>ハード制約と負荷の平準化は1日単位で適用します。他の日の配置は書き換えません</li>
+                    <li>日をまたいだ偏りは、ハード制約ではなくスコアのソフトな減点（他の日の担当 -2/件・-2/時間）として考慮します</li>
+                    <li>3日開催なら、3日分それぞれ実行してください</li>
                 </ul>
             </div>
 
@@ -1296,9 +1331,10 @@
                         <tr><td><strong>英語対応</strong></td><td style="color:#1a73e8;font-weight:700">+50</td><td>英語対応が必要なセッションで、英語OKスタッフの場合</td></tr>
                         <tr><td><strong>スキルマッチ</strong></td><td style="color:#1a73e8;font-weight:700">+10</td><td>スタッフのスキルにセッションカテゴリが含まれる場合</td></tr>
                         <tr><td><strong>ロールマッチ</strong></td><td style="color:#1a73e8;font-weight:700">+5</td><td>スタッフのロールにセッションの対象ロールが含まれる場合</td></tr>
-                        <tr><td><strong>担当件数均等化</strong></td><td style="color:#d93025;font-weight:700">-8 / 件</td><td>既に担当しているセッション数に応じて減点</td></tr>
-                        <tr><td><strong>担当時間均等化</strong></td><td style="color:#d93025;font-weight:700">-12 / 時間</td><td>既に担当している合計時間に応じて減点</td></tr>
-                        <tr><td><strong>未配置スタッフ優先</strong></td><td style="color:#1a73e8;font-weight:700">+30</td><td>まだ1件も担当していないスタッフに加点</td></tr>
+                        <tr><td><strong>担当件数均等化</strong></td><td style="color:#d93025;font-weight:700">-8 / 件</td><td>その日に既に担当しているセッション数に応じて減点</td></tr>
+                        <tr><td><strong>担当時間均等化</strong></td><td style="color:#d93025;font-weight:700">-12 / 時間</td><td>その日に既に担当している合計時間に応じて減点</td></tr>
+                        <tr><td><strong>未配置スタッフ優先</strong></td><td style="color:#1a73e8;font-weight:700">+30</td><td>その日まだ1件も担当していないスタッフに加点</td></tr>
+                        <tr><td><strong>日またぎの偏り</strong></td><td style="color:#d93025;font-weight:700">-2 / 件・時間</td><td>他の日の担当件数・担当時間に応じて軽く減点（配置可否は左右しない）</td></tr>
                         <tr><td><strong>階移動ペナルティ</strong></td><td style="color:#d93025;font-weight:700">-3 / 階</td><td>直前セッションの部屋と階が異なる場合、階差分だけ減点</td></tr>
                         <tr><td><strong>連続配置ペナルティ</strong></td><td style="color:#d93025;font-weight:700">-40</td><td>直前の担当が30分未満の間隔で続く場合</td></tr>
                         <tr><td><strong>同部屋連続ペナルティ</strong></td><td style="color:#d93025;font-weight:700">-25</td><td>直近2セッション内に同じ部屋の担当がある場合（休憩を挟んでも対象）</td></tr>
@@ -2552,6 +2588,7 @@ jobs:
                             </div>
                         </div>
                     </template>
+                    <span v-else-if="sessDetailSession.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                     <span v-else class="badge warn">未配置</span>
                 </div>
                 <!-- 編集可能 -->
@@ -2566,6 +2603,7 @@ jobs:
                             <button @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
                         </span>
                     </template>
+                    <span v-else-if="sessDetailSession.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                     <span v-else class="badge warn">未配置</span>
                 </div>
                 <div v-if="!sessDetailLocked" style="margin-top:8px;display:flex;align-items:center;gap:6px">
@@ -2621,6 +2659,7 @@ jobs:
                 <template v-else-if="entry.assigned_staff.length">
                     <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id">{{ a.staff.name }}</span>
                 </template>
+                <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                 <span v-else class="badge warn">未配置</span>
             </div>
         </div>
