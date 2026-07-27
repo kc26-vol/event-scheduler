@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -55,6 +55,49 @@ def _load_role_links(db: Session, setting_key: str) -> dict:
         links = {}
     return links if isinstance(links, dict) else {}
 
+def _resolve_target_day(body, sessions) -> tuple[set[int], date]:
+    """自動配置の対象セッションIDと対象日を決定する
+
+    自動配置は日程ごとに実行する。全日程を一括で配置する指定は受け付けない。
+    """
+    if body and body.target_date:
+        try:
+            day = date.fromisoformat(body.target_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="日付の形式が正しくありません（YYYY-MM-DD で指定してください）")
+        day_ids = {s.id for s in sessions if s.start_time.date() == day}
+        if not day_ids:
+            raise HTTPException(status_code=400, detail=f"{body.target_date} のセッションがありません")
+        if body.session_ids:
+            target_ids = day_ids & set(body.session_ids)
+            if not target_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"指定されたセッションは {body.target_date} に存在しません",
+                )
+            return target_ids, day
+        return day_ids, day
+
+    if body and body.session_ids:
+        by_id = {s.id: s for s in sessions}
+        target_ids = {sid for sid in body.session_ids if sid in by_id}
+        if not target_ids:
+            raise HTTPException(status_code=400, detail="対象のセッションが見つかりません")
+        days = {by_id[sid].start_time.date() for sid in target_ids}
+        if len(days) > 1:
+            listed = "、".join(sorted(d.isoformat() for d in days))
+            raise HTTPException(
+                status_code=400,
+                detail=f"自動配置は日程ごとに実行してください。複数日のセッションが指定されています（{listed}）",
+            )
+        return target_ids, days.pop()
+
+    raise HTTPException(
+        status_code=400,
+        detail="自動配置は日程ごとに実行します。対象の日付（target_date）を指定してください",
+    )
+
+
 router = APIRouter(prefix="/api/assignments", tags=["assignments"])
 
 
@@ -97,33 +140,35 @@ def get_staff_schedule(db: Session = Depends(get_db)):
 
 
 class AutoAssignRequest(BaseModel):
+    target_date: str | None = None  # "YYYY-MM-DD"。自動配置は日程ごとに実行する
     session_ids: list[int] = []
     fill_only: bool = False
 
 
 @router.post("/auto-assign")
 def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depends(get_db)):
-    """スケジュールに基づいてスタッフを自動配置する
+    """指定された1日のスタッフを自動配置する
 
-    session_ids が指定された場合、そのセッションのみ再配置する（他は維持）。
-    空の場合は全セッションを再配置する。
+    自動配置は **日程ごと** に実行する。全日程を一括で配置する機能は廃止した。
+    target_date を指定するとその日の全セッション（カテゴリ・グループを問わず）が対象。
+    session_ids を併せて指定するとその日の中でさらに対象を絞り込む。
+    session_ids のみの指定も可能だが、複数日にまたがる指定は拒否する。
     fill_only の場合、既存配置を維持したまま不足分のみ追加配置する。
 
     ハード制約（活動可能時間・時間重複・移動時間・max_hours）と負荷均等化は
-    日単位で適用する。全日程を通した偏りはスコアのソフトな減点として考慮し、
+    日単位で適用する。他の日との偏りはスコアのソフトな減点として考慮し、
     配置可能なスタッフがいるのに未配置になる事態を防ぐ。
     """
-    target_ids = set(body.session_ids) if body and body.session_ids else set()
     fill_only = bool(body and body.fill_only)
+
+    sessions = db.query(SessionModel).options(joinedload(SessionModel.room)).order_by(SessionModel.start_time).all()
+    target_ids, target_day = _resolve_target_day(body, sessions)
 
     if fill_only:
         pass  # 既存配置を維持
-    elif target_ids:
-        # 対象セッションの割り当てのみクリア
-        db.query(Assignment).filter(Assignment.session_id.in_(target_ids)).delete(synchronize_session='fetch')
     else:
-        # 全クリア
-        db.query(Assignment).delete()
+        # 対象セッションの割り当てのみクリア（他の日の配置は保持する）
+        db.query(Assignment).filter(Assignment.session_id.in_(target_ids)).delete(synchronize_session='fetch')
     db.flush()
 
     # 動的カテゴリキーを取得（受付案内・懇親会などカスタムカテゴリ）
@@ -132,7 +177,6 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
     group_role_links = _load_role_links(db, "group_role_links")
     travel_buffer = _get_travel_buffer(db)
 
-    sessions = db.query(SessionModel).options(joinedload(SessionModel.room)).order_by(SessionModel.start_time).all()
     staffs = (
         db.query(Staff)
         .options(
@@ -183,22 +227,21 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
                 pair_count[key] = pair_count.get(key, 0) + 1
 
     # このリクエストで（再）配置される対象セッション
-    processed_ids = set(target_ids) if target_ids else {s.id for s in sessions}
+    processed_ids = set(target_ids)
 
-    # 部分再配置・不足分配置の場合、既存割り当てを事前にロード
-    if target_ids or fill_only:
-        existing = db.query(Assignment).all()
-        sessions_by_id = {s.id: s for s in sessions}
-        seed_pairs: dict[int, list[int]] = {}
-        for a in existing:
-            if a.session_id in sessions_by_id:
-                sess = sessions_by_id[a.session_id]
-                _add_staff_session(a.staff_id, sess)
-                # 維持されるセッション（再配置対象外）のペアのみ先行カウント
-                if a.session_id not in processed_ids:
-                    seed_pairs.setdefault(a.session_id, []).append(a.staff_id)
-        for sids in seed_pairs.values():
-            _bump_pairs(sids)
+    # 対象外の日・対象外セッションの既存割り当てを事前にロードして制約に反映する
+    existing = db.query(Assignment).all()
+    sessions_by_id = {s.id: s for s in sessions}
+    seed_pairs: dict[int, list[int]] = {}
+    for a in existing:
+        if a.session_id in sessions_by_id:
+            sess = sessions_by_id[a.session_id]
+            _add_staff_session(a.staff_id, sess)
+            # 維持されるセッション（再配置対象外）のペアのみ先行カウント
+            if a.session_id not in processed_ids:
+                seed_pairs.setdefault(a.session_id, []).append(a.staff_id)
+    for sids in seed_pairs.values():
+        _bump_pairs(sids)
 
     def _is_effectively_experienced(staff) -> bool:
         """経験者 or 既に1セッション経験者と組んで担当済みの初回スタッフ"""
@@ -207,10 +250,11 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
         return staff.id in newcomer_trained
 
     results = []
+    skipped = 0  # 「全員」設定・必要人数0・overall など配置対象外のセッション数
 
     for session in sessions:
-        # 部分再配置: 対象外セッションはスキップ
-        if target_ids and session.id not in target_ids:
+        # 対象日・対象セッション以外はスキップ
+        if session.id not in target_ids:
             continue
 
         session_duration = (session.end_time - session.start_time).total_seconds() / 3600
@@ -227,13 +271,9 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
             allowed_roles |= set(group_role_links.get(str(session.group_id), []))
 
         # 「全員」設定（-1）・必要人数0・overallは自動配置をスキップ
+        # （配置対象ではないので充足率の分母にも含めない）
         if session.required_staff in (-1, 0) or session.category == 'overall':
-            results.append({
-                "session_id": session.id,
-                "session_title": session.title,
-                "required": 0,
-                "assigned": 0,
-            })
+            skipped += 1
             continue
 
         # スタッフをスコアリング（スタッフ自身の履歴に依存する項目）
@@ -496,8 +536,13 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
     unassigned = [r for r in results if r["assigned"] < r["required"]]
     return {
         "message": "Auto-assignment completed",
+        "target_date": target_day.isoformat(),
+        # 配置対象（人員が必要な）セッションのみを分母にする
         "total_sessions": len(results),
         "fully_assigned": len(results) - len(unassigned),
+        "skipped_sessions": skipped,
+        "required_slots": sum(r["required"] for r in results),
+        "assigned_slots": sum(r["assigned"] for r in results),
         "understaffed": unassigned,
     }
 
