@@ -47,14 +47,8 @@
         <!-- ===== 部屋管理 ===== -->
         <div class="panel" :class="{ active: tab === 'rooms' }">
             <h2>部屋管理</h2>
-            <div class="form-row">
-                <div class="form-group"><label>部屋名 <span class="req">必須</span></label><input v-model="roomForm.name" placeholder="例: ホールA"></div>
-                <div class="form-group"><label>定員</label><input v-model.number="roomForm.capacity" type="number" placeholder="100"></div>
-                <div class="form-group"><label>階</label><input v-model.number="roomForm.floor" type="number" placeholder="1"></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-bottom:12px">
-                <button class="btn" @click="submitRoom">{{ roomForm.editId ? '更新' : '追加' }}</button>
-                <button v-if="roomForm.editId" class="btn btn-danger" @click="cancelEditRoom">キャンセル</button>
+            <div style="margin-bottom:12px">
+                <button class="btn" @click="openRoomModal">＋ 部屋を追加</button>
             </div>
             <table>
                 <thead><tr><th>ID</th><th>部屋名</th><th>階</th><th>定員</th><th></th></tr></thead>
@@ -68,33 +62,32 @@
                     </tr>
                 </tbody>
             </table>
+
+            <!-- 部屋 追加/編集モーダル -->
+            <div v-if="formModals.room" class="modal-overlay">
+                <div class="modal-box">
+                    <div class="modal-box-header">
+                        <h3>{{ roomForm.editId ? '部屋を編集' : '部屋を追加' }}</h3>
+                        <button class="modal-close-btn" @click="closeRoomModal">✕</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>部屋名 <span class="req">必須</span></label><input v-model="roomForm.name" placeholder="例: ホールA"></div>
+                        <div class="form-group"><label>定員</label><input v-model.number="roomForm.capacity" type="number" placeholder="100"></div>
+                        <div class="form-group"><label>階</label><input v-model.number="roomForm.floor" type="number" placeholder="1"></div>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn" @click="submitRoom">{{ roomForm.editId ? '更新' : '追加' }}</button>
+                        <button class="btn btn-danger" @click="closeRoomModal">キャンセル</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- ===== 会場地図 ===== -->
         <div class="panel" :class="{ active: tab === 'venue-maps' }">
             <h2>会場地図</h2>
-            <div class="form-row">
-                <div class="form-group"><label>タイトル <span class="req">必須</span></label><input v-model="venueMapForm.title" placeholder="例: 1F フロアマップ"></div>
-                <div class="form-group"><label>表示順</label><input v-model.number="venueMapForm.order" type="number" placeholder="0"></div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>地図画像</label>
-                    <input type="file" ref="venueMapInput" accept="image/jpeg,image/png,image/gif,image/webp" @change="onVenueMapChange" style="display:none">
-                    <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
-                    <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;margin-left:8px;padding:6px 10px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.8rem;color:#607d8b;cursor:text">クリックしてCtrl+Vで貼り付け</span>
-                    <div style="margin-top:8px">
-                        <img v-if="venueMapPreview" :src="venueMapPreview" style="max-width:200px;max-height:120px;border-radius:4px;border:1px solid #ccc">
-                        <div v-if="venueMapForm.editId && venueMapForm.currentImage && !venueMapPreview" style="font-size:0.8rem;color:#666">
-                            <img :src="venueMapForm.currentImage" style="max-width:200px;max-height:120px;border-radius:4px;border:1px solid #ccc">
-                            <br>新しい画像を選択しない場合、現在の地図が維持されます
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div style="display:flex;gap:8px;margin-bottom:12px">
-                <button class="btn" @click="submitVenueMap">{{ venueMapForm.editId ? '更新' : '追加' }}</button>
-                <button v-if="venueMapForm.editId" class="btn btn-danger" @click="cancelEditVenueMap">キャンセル</button>
+            <div style="margin-bottom:12px">
+                <button class="btn" @click="openVenueMapModal">＋ 地図を追加</button>
             </div>
 
             <div v-if="!venueMaps.length" style="color:#888;font-size:0.9rem">地図が登録されていません。</div>
@@ -107,6 +100,39 @@
                     </div>
                 </div>
                 <img :src="m.image" style="max-width:100%;max-height:400px;border-radius:4px;border:1px solid #ddd;cursor:pointer" @click="mapModal=m">
+            </div>
+
+            <!-- 地図 追加/編集モーダル -->
+            <div v-if="formModals.venueMap" class="modal-overlay">
+                <div class="modal-box">
+                    <div class="modal-box-header">
+                        <h3>{{ venueMapForm.editId ? '地図を編集' : '地図を追加' }}</h3>
+                        <button class="modal-close-btn" @click="closeVenueMapModal">✕</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>タイトル <span class="req">必須</span></label><input v-model="venueMapForm.title" placeholder="例: 1F フロアマップ"></div>
+                        <div class="form-group"><label>表示順</label><input v-model.number="venueMapForm.order" type="number" placeholder="0"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>地図画像</label>
+                            <input type="file" ref="venueMapInput" accept="image/jpeg,image/png,image/gif,image/webp" @change="onVenueMapChange" style="display:none">
+                            <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
+                            <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;margin-left:8px;padding:6px 10px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.8rem;color:#607d8b;cursor:text">クリックしてCtrl+Vで貼り付け</span>
+                            <div style="margin-top:8px">
+                                <img v-if="venueMapPreview" :src="venueMapPreview" style="max-width:200px;max-height:120px;border-radius:4px;border:1px solid #ccc">
+                                <div v-if="venueMapForm.editId && venueMapForm.currentImage && !venueMapPreview" style="font-size:0.8rem;color:#666">
+                                    <img :src="venueMapForm.currentImage" style="max-width:200px;max-height:120px;border-radius:4px;border:1px solid #ccc">
+                                    <br>新しい画像を選択しない場合、現在の地図が維持されます
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn" @click="submitVenueMap">{{ venueMapForm.editId ? '更新' : '追加' }}</button>
+                        <button class="btn btn-danger" @click="closeVenueMapModal">キャンセル</button>
+                    </div>
+                </div>
             </div>
 
             <!-- 地図拡大モーダル -->
@@ -139,109 +165,8 @@
                 </button>
             </div>
 
-            <div class="form-row">
-                <div class="form-group"><label>タイトル <span class="req">必須</span></label><input v-model="groupSessForms[grp.id].title" placeholder="例: Kubernetes実践入門"></div>
-            </div>
-            <!-- 通常セッション: 登壇者情報 -->
-            <template v-if="!isMultiSpeakerCat(groupSessForms[grp.id].category) && !dynamicCatKeys.includes(groupSessForms[grp.id].category)">
-                <div class="form-row">
-                    <div class="form-group"><label>登壇者名 <span class="req">必須</span></label><input v-model="groupSessForms[grp.id].speaker" placeholder="例: 山田 太郎"></div>
-                    <div class="form-group"><label>ふりがな</label><input v-model="groupSessForms[grp.id].speaker_kana" placeholder="例: やまだ たろう"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label>所属</label><input v-model="groupSessForms[grp.id].speaker_org" placeholder="例: 株式会社○○"></div>
-                    <div class="form-group"><label>肩書き</label><input v-model="groupSessForms[grp.id].speaker_title" placeholder="例: CTO"></div>
-                </div>
-                <div class="form-group"><label>プロフィール</label><textarea v-model="groupSessForms[grp.id].speaker_profile" rows="2" placeholder="例: 10年以上のクラウドインフラ経験を持つエンジニア。"></textarea></div>
-            </template>
-            <!-- 登壇者写真 -->
-            <template v-if="!isMultiSpeakerCat(groupSessForms[grp.id].category) && !dynamicCatKeys.includes(groupSessForms[grp.id].category)">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>登壇者写真</label>
-                        <input type="file" :data-group-photo="grp.id" accept="image/jpeg,image/png,image/gif,image/webp"
-                               @change="onGroupPhotoChange(grp.id, $event)" style="display:none">
-                        <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
-                        <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;margin-left:8px;padding:6px 10px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.8rem;color:#607d8b;cursor:text">クリックしてCtrl+Vで貼り付け</span>
-                        <div v-if="groupSessForms[grp.id].photoPreview" style="margin-top:8px">
-                            <img :src="groupSessForms[grp.id].photoPreview" class="photo-preview">
-                        </div>
-                        <div v-else-if="groupSessForms[grp.id].editId && groupSessForms[grp.id].currentPhoto" style="margin-top:8px">
-                            <img :src="groupSessForms[grp.id].currentPhoto" class="photo-preview">
-                            <span style="font-size:0.8rem;color:#666">新しい写真を選択しない場合、現在の写真が維持されます</span>
-                        </div>
-                    </div>
-                </div>
-            </template>
-            <div class="form-row">
-                <div class="form-group"><label>開始時刻 <span class="req">必須</span></label><input v-model="groupSessForms[grp.id].start_time" type="datetime-local" step="300" @change="autoSetEndTime(groupSessForms[grp.id])"></div>
-                <div class="form-group"><label>終了時刻 <span class="req">必須</span></label><input v-model="groupSessForms[grp.id].end_time" type="datetime-local" step="300"></div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>部屋 <span class="req">必須</span></label>
-                    <select v-model.number="groupSessForms[grp.id].room_id">
-                        <option v-for="r in selectableRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>カテゴリ</label>
-                    <select v-model="groupSessForms[grp.id].category">
-                        <option v-for="sc in sessionCatOptions" :key="sc.key" :value="sc.key">{{ sc.label }}</option>
-                    </select>
-                </div>
-                <div class="form-group"><label>必要スタッフ数</label><input v-model.number="groupSessForms[grp.id].required_staff" type="number" placeholder="例: 2"></div>
-                <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:22px">
-                    <label style="margin:0"><input type="checkbox" v-model="groupSessForms[grp.id].english_required" style="width:16px;height:16px;cursor:pointer"> 英語対応必要</label>
-                </div>
-            </div>
-            <div class="form-group"><label>セッション説明</label><textarea v-model="groupSessForms[grp.id].description" rows="2" placeholder="例: コンテナオーケストレーションの基礎から実践的なデプロイ手法まで解説します。"></textarea></div>
-            <div class="form-group"><label>備考</label><textarea v-model="groupSessForms[grp.id].notes" rows="2" placeholder="例: プロジェクター2台使用。講演者用に水を準備。"></textarea></div>
-
-            <!-- LTセッション: 登壇者リスト -->
-            <div v-if="isMultiSpeakerCat(groupSessForms[grp.id].category) && groupSessForms[grp.id]._ltTalks" class="lt-talks-list">
-                <h4>{{ groupSessForms[grp.id].category === 'panel' ? 'パネリスト一覧' : 'LT登壇者一覧' }}</h4>
-                <div v-for="(talk, idx) in groupSessForms[grp.id]._ltTalks" :key="idx" class="lt-talk-item" style="flex-direction:column;align-items:stretch">
-                    <div style="display:flex;align-items:center;gap:8px">
-                        <span class="lt-num">{{ idx + 1 }}</span>
-                        <div style="flex:1;min-width:0">
-                            <div class="lt-talk-fields">
-                                <input v-model="talk.title" placeholder="トークタイトル" style="flex:2;min-width:140px">
-                                <input v-model="talk.speaker" placeholder="登壇者名" style="flex:1;min-width:100px">
-                                <input v-model="talk.speaker_kana" placeholder="ふりがな" style="flex:1;min-width:100px">
-                            </div>
-                            <div class="lt-talk-fields" style="margin-top:4px">
-                                <input v-model="talk.speaker_org" placeholder="所属" style="flex:1;min-width:100px">
-                                <input v-model="talk.speaker_title" placeholder="肩書き" style="flex:1;min-width:80px">
-                                <input v-model="talk.start_time" type="datetime-local" step="300" style="flex:1;min-width:140px" placeholder="開始時刻"
-                                       @change="autoSetLTEndTime(talk)">
-                                <input v-model="talk.end_time" type="datetime-local" step="300" style="flex:1;min-width:140px" placeholder="終了時刻">
-                            </div>
-                            <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
-                                <label style="font-size:0.8rem;white-space:nowrap">写真:</label>
-                                <input type="file" accept="image/jpeg,image/png,image/gif,image/webp"
-                                       @change="onLTTalkPhoto($event, grp.id, idx)" style="display:none">
-                                <button type="button" class="btn" style="background:#607d8b;font-size:0.75rem;padding:4px 10px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
-                                <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;padding:4px 8px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.75rem;color:#607d8b;cursor:text;white-space:nowrap">貼り付け</span>
-                                <img v-if="talk.photoPreview" :src="talk.photoPreview" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
-                                <img v-else-if="talk.speaker_photo" :src="talk.speaker_photo" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
-                                <label style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;font-size:0.8rem;white-space:nowrap;cursor:pointer">
-                                    <input type="checkbox" :checked="talk.is_representative" @change="toggleRepresentative(groupSessForms[grp.id]._ltTalks, idx)">
-                                    {{ groupSessForms[grp.id].category === 'panel' ? 'モデレーター' : '司会者' }}
-                                </label>
-                            </div>
-                        </div>
-                        <button class="del-btn" @click="groupSessForms[grp.id]._ltTalks.splice(idx, 1)">✕</button>
-                    </div>
-                </div>
-                <button class="btn btn-sm" @click="addLTTalk(grp.id)" style="margin-top:4px">＋ 登壇者を追加</button>
-            </div>
-            <div v-if="isMultiSpeakerCat(groupSessForms[grp.id].category) && !groupSessForms[grp.id]._ltTalks">
-                <button class="btn btn-sm" @click="addLTTalk(grp.id)" style="margin-bottom:8px">＋ {{ groupSessForms[grp.id].category === 'panel' ? 'パネリストを追加' : 'LT登壇者を追加' }}</button>
-            </div>
-            <div style="display:flex;gap:8px">
-                <button class="btn" :style="{ background: grp.color }" @click="submitGroupSession(grp.id)">{{ groupSessForms[grp.id].editId ? '更新' : '追加' }}</button>
-                <button v-if="groupSessForms[grp.id].editId" class="btn btn-danger" @click="cancelEditGroupSession(grp.id)">キャンセル</button>
+            <div style="margin-bottom:12px">
+                <button class="btn" :style="{ background: grp.color }" @click="openGroupSessModal(grp.id)">＋ セッションを追加</button>
             </div>
             <!-- 配置表 -->
             <template v-if="grpDateFiltered(grp.id).length && grpDateTabs[grp.id] !== 0">
@@ -290,158 +215,128 @@
                     </template>
                 </tbody>
             </table>
+
+            <!-- セッション 追加/編集モーダル -->
+            <div v-if="formModals.group[grp.id]" class="modal-overlay">
+                <div class="modal-box">
+                    <div class="modal-box-header">
+                        <h3>{{ groupSessForms[grp.id].editId ? 'セッションを編集' : 'セッションを追加' }}</h3>
+                        <button class="modal-close-btn" @click="closeGroupSessModal(grp.id)">✕</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>タイトル <span class="req">必須</span></label><input v-model="groupSessForms[grp.id].title" placeholder="例: Kubernetes実践入門"></div>
+                    </div>
+                    <!-- 通常セッション: 登壇者情報 -->
+                    <template v-if="!isMultiSpeakerCat(groupSessForms[grp.id].category) && !dynamicCatKeys.includes(groupSessForms[grp.id].category)">
+                        <div class="form-row">
+                            <div class="form-group"><label>登壇者名 <span class="req">必須</span></label><input v-model="groupSessForms[grp.id].speaker" placeholder="例: 山田 太郎"></div>
+                            <div class="form-group"><label>ふりがな</label><input v-model="groupSessForms[grp.id].speaker_kana" placeholder="例: やまだ たろう"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>所属</label><input v-model="groupSessForms[grp.id].speaker_org" placeholder="例: 株式会社○○"></div>
+                            <div class="form-group"><label>肩書き</label><input v-model="groupSessForms[grp.id].speaker_title" placeholder="例: CTO"></div>
+                        </div>
+                        <div class="form-group"><label>プロフィール</label><textarea v-model="groupSessForms[grp.id].speaker_profile" rows="2" placeholder="例: 10年以上のクラウドインフラ経験を持つエンジニア。"></textarea></div>
+                    </template>
+                    <!-- 登壇者写真 -->
+                    <template v-if="!isMultiSpeakerCat(groupSessForms[grp.id].category) && !dynamicCatKeys.includes(groupSessForms[grp.id].category)">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>登壇者写真</label>
+                                <input type="file" :data-group-photo="grp.id" accept="image/jpeg,image/png,image/gif,image/webp"
+                                       @change="onGroupPhotoChange(grp.id, $event)" style="display:none">
+                                <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
+                                <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;margin-left:8px;padding:6px 10px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.8rem;color:#607d8b;cursor:text">クリックしてCtrl+Vで貼り付け</span>
+                                <div v-if="groupSessForms[grp.id].photoPreview" style="margin-top:8px">
+                                    <img :src="groupSessForms[grp.id].photoPreview" class="photo-preview">
+                                </div>
+                                <div v-else-if="groupSessForms[grp.id].editId && groupSessForms[grp.id].currentPhoto" style="margin-top:8px">
+                                    <img :src="groupSessForms[grp.id].currentPhoto" class="photo-preview">
+                                    <span style="font-size:0.8rem;color:#666">新しい写真を選択しない場合、現在の写真が維持されます</span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    <div class="form-row">
+                        <div class="form-group"><label>開始時刻 <span class="req">必須</span></label><input v-model="groupSessForms[grp.id].start_time" type="datetime-local" step="300" @change="autoSetEndTime(groupSessForms[grp.id])"></div>
+                        <div class="form-group"><label>終了時刻 <span class="req">必須</span></label><input v-model="groupSessForms[grp.id].end_time" type="datetime-local" step="300"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>部屋 <span class="req">必須</span></label>
+                            <select v-model.number="groupSessForms[grp.id].room_id">
+                                <option v-for="r in selectableRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>カテゴリ</label>
+                            <select v-model="groupSessForms[grp.id].category">
+                                <option v-for="sc in sessionCatOptions" :key="sc.key" :value="sc.key">{{ sc.label }}</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label>必要スタッフ数</label><input v-model.number="groupSessForms[grp.id].required_staff" type="number" placeholder="例: 2"></div>
+                        <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+                            <label style="margin:0"><input type="checkbox" v-model="groupSessForms[grp.id].english_required" style="width:16px;height:16px;cursor:pointer"> 英語対応必要</label>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>セッション説明</label><textarea v-model="groupSessForms[grp.id].description" rows="2" placeholder="例: コンテナオーケストレーションの基礎から実践的なデプロイ手法まで解説します。"></textarea></div>
+                    <div class="form-group"><label>備考</label><textarea v-model="groupSessForms[grp.id].notes" rows="2" placeholder="例: プロジェクター2台使用。講演者用に水を準備。"></textarea></div>
+
+                    <!-- LTセッション: 登壇者リスト -->
+                    <div v-if="isMultiSpeakerCat(groupSessForms[grp.id].category) && groupSessForms[grp.id]._ltTalks" class="lt-talks-list">
+                        <h4>{{ groupSessForms[grp.id].category === 'panel' ? 'パネリスト一覧' : 'LT登壇者一覧' }}</h4>
+                        <div v-for="(talk, idx) in groupSessForms[grp.id]._ltTalks" :key="idx" class="lt-talk-item" style="flex-direction:column;align-items:stretch">
+                            <div style="display:flex;align-items:center;gap:8px">
+                                <span class="lt-num">{{ idx + 1 }}</span>
+                                <div style="flex:1;min-width:0">
+                                    <div class="lt-talk-fields">
+                                        <input v-model="talk.title" placeholder="トークタイトル" style="flex:2;min-width:140px">
+                                        <input v-model="talk.speaker" placeholder="登壇者名" style="flex:1;min-width:100px">
+                                        <input v-model="talk.speaker_kana" placeholder="ふりがな" style="flex:1;min-width:100px">
+                                    </div>
+                                    <div class="lt-talk-fields" style="margin-top:4px">
+                                        <input v-model="talk.speaker_org" placeholder="所属" style="flex:1;min-width:100px">
+                                        <input v-model="talk.speaker_title" placeholder="肩書き" style="flex:1;min-width:80px">
+                                        <input v-model="talk.start_time" type="datetime-local" step="300" style="flex:1;min-width:140px" placeholder="開始時刻"
+                                               @change="autoSetLTEndTime(talk)">
+                                        <input v-model="talk.end_time" type="datetime-local" step="300" style="flex:1;min-width:140px" placeholder="終了時刻">
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+                                        <label style="font-size:0.8rem;white-space:nowrap">写真:</label>
+                                        <input type="file" accept="image/jpeg,image/png,image/gif,image/webp"
+                                               @change="onLTTalkPhoto($event, grp.id, idx)" style="display:none">
+                                        <button type="button" class="btn" style="background:#607d8b;font-size:0.75rem;padding:4px 10px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
+                                        <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;padding:4px 8px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.75rem;color:#607d8b;cursor:text;white-space:nowrap">貼り付け</span>
+                                        <img v-if="talk.photoPreview" :src="talk.photoPreview" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
+                                        <img v-else-if="talk.speaker_photo" :src="talk.speaker_photo" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
+                                        <label style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;font-size:0.8rem;white-space:nowrap;cursor:pointer">
+                                            <input type="checkbox" :checked="talk.is_representative" @change="toggleRepresentative(groupSessForms[grp.id]._ltTalks, idx)">
+                                            {{ groupSessForms[grp.id].category === 'panel' ? 'モデレーター' : '司会者' }}
+                                        </label>
+                                    </div>
+                                </div>
+                                <button class="del-btn" @click="groupSessForms[grp.id]._ltTalks.splice(idx, 1)">✕</button>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm" @click="addLTTalk(grp.id)" style="margin-top:4px">＋ 登壇者を追加</button>
+                    </div>
+                    <div v-if="isMultiSpeakerCat(groupSessForms[grp.id].category) && !groupSessForms[grp.id]._ltTalks">
+                        <button class="btn btn-sm" @click="addLTTalk(grp.id)" style="margin-bottom:8px">＋ {{ groupSessForms[grp.id].category === 'panel' ? 'パネリストを追加' : 'LT登壇者を追加' }}</button>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn" :style="{ background: grp.color }" @click="submitGroupSession(grp.id)">{{ groupSessForms[grp.id].editId ? '更新' : '追加' }}</button>
+                        <button class="btn btn-danger" @click="closeGroupSessModal(grp.id)">キャンセル</button>
+                    </div>
+                </div>
+            </div>
         </div>
         </template>
 
         <!-- ===== スタッフ管理 ===== -->
         <div class="panel" :class="{ active: tab === 'staffs' }">
             <h2>スタッフ管理 <span style="font-size:0.85rem;font-weight:normal;color:#666">({{ staffs.length }}名)</span></h2>
-            <!-- 写真アップロード -->
-            <div style="margin-bottom:12px;display:flex;align-items:center;gap:16px">
-                <div>
-                    <img v-if="staffPhotoPreview" :src="staffPhotoPreview" class="photo-preview">
-                    <img v-else-if="staffForm.currentPhoto" :src="staffForm.currentPhoto" class="photo-preview">
-                    <span v-else class="speaker-photo-placeholder" style="width:80px;height:80px;font-size:2rem">{{ staffForm.name ? staffForm.name.charAt(0) : '?' }}</span>
-                </div>
-                <div>
-                    <label style="font-weight:600;font-size:0.9rem;display:block;margin-bottom:4px">プロフィール写真</label>
-                    <input type="file" accept="image/jpeg,image/png,image/gif,image/webp"
-                           @change="onNewStaffPhoto($event)" style="display:none">
-                    <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
-                    <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;margin-left:8px;padding:6px 10px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.8rem;color:#607d8b;cursor:text">クリックしてCtrl+Vで貼り付け</span>
-                    <div v-if="staffPhotoPreview" style="margin-top:4px">
-                        <button class="del-btn" @click="clearNewStaffPhoto">取り消し</button>
-                    </div>
-                    <div v-else-if="staffForm.editId && staffForm.currentPhoto" style="margin-top:4px">
-                        <button class="del-btn" @click="deleteStaffPhoto(staffForm.editId)">写真を削除</button>
-                    </div>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group"><label>名前 <span class="req">必須</span></label><input v-model="staffForm.name" placeholder="例: 山田 太郎"></div>
-                <div class="form-group">
-                    <label>アカウント名</label>
-                    <input v-model="staffForm.slack_name" placeholder="例: @yamada-taro">
-                    <span style="font-size:0.75rem;color:#888">Slackなど連絡ツールで表示される名前</span>
-                </div>
-                <div class="form-group">
-                    <label>緊急連絡先</label>
-                    <input v-model="staffForm.emergency_contact" placeholder="例: 090-1234-5678">
-                    <span style="font-size:0.75rem;color:#888">電話番号など</span>
-                </div>
-                <div class="form-group" style="position:relative">
-                    <label>担当</label>
-                    <div @click.stop="roleDropdownOpen = !roleDropdownOpen"
-                         style="padding:8px 12px;border:1px solid #ccc;border-radius:4px;font-size:0.9rem;cursor:pointer;background:#fff;display:flex;justify-content:space-between;align-items:center;min-height:38px">
-                        <span v-if="staffForm.role.length">{{ staffForm.role.map(r => catLabel(r)).join(', ') }}</span>
-                        <span v-else style="color:#999">なし</span>
-                        <span style="font-size:0.7rem;color:#666">&#9660;</span>
-                    </div>
-                    <div v-if="roleDropdownOpen" @click.stop
-                         style="position:absolute;top:100%;left:0;right:0;z-index:10;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);padding:4px 0">
-                        <label v-for="opt in roleOptions" :key="opt.v"
-                               style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:0.9rem;margin:0">
-                            <input type="checkbox" :value="opt.v" v-model="staffForm.role"
-                                   style="width:16px;height:16px;cursor:pointer;accent-color:#1a73e8">
-                            {{ opt.l }}
-                        </label>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>過去参加回数 <span class="req">必須</span></label>
-                    <input v-model.number="staffForm.experience_count" type="number" min="0" placeholder="過去参加回数" required>
-                    <span style="font-size:0.75rem;color:#888">0 = 初めて（経験者と一緒に配置されます）</span>
-                </div>
-                <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:20px">
-                    <label style="margin:0"><input type="checkbox" v-model="staffForm.english_ok" style="width:16px;height:16px;cursor:pointer"> 英語対応可</label>
-                </div>
-            </div>
-
-            <!-- 活動可能時間（新規・編集共通） -->
-            <div class="detail-section" style="margin-top:12px;padding:12px;background:#f8f9fa;border-radius:6px">
-                <h4 style="margin-top:0">活動可能時間</h4>
-                <!-- 編集時: サーバー保存済みの時間帯 -->
-                <template v-if="staffForm.editId">
-                    <template v-if="editingStaffAvails.length">
-                        <span class="badge avail" v-for="a in editingStaffAvails" :key="a.id" style="display:inline-flex;align-items:center;gap:4px">
-                            {{ fmt(a.start_time) }} - {{ fmtShort(a.end_time) }}
-                            <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="removeAvail(staffForm.editId, a.id)">x</button>
-                        </span>
-                    </template>
-                    <span v-if="!editingStaffAvails.length" style="color:#999;font-size:0.85rem">制限なし（終日対応可能）</span>
-                    <div class="inline-form" style="margin-top:8px">
-                        <div class="form-group"><input v-model="availForms[staffForm.editId].start" type="datetime-local" step="300"></div>
-                        <div class="form-group"><input v-model="availForms[staffForm.editId].end" type="datetime-local" step="300"></div>
-                        <button class="btn btn-sm" @click="addAvail(staffForm.editId)">追加</button>
-                    </div>
-                </template>
-                <!-- 新規登録時: ローカルリストで管理 -->
-                <template v-else>
-                    <template v-if="newStaffAvails.length">
-                        <span class="badge avail" v-for="(a, idx) in newStaffAvails" :key="idx" style="display:inline-flex;align-items:center;gap:4px">
-                            {{ fmt(a.start_time) }} - {{ fmtShort(a.end_time) }}
-                            <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="newStaffAvails.splice(idx, 1)">x</button>
-                        </span>
-                    </template>
-                    <span v-if="!newStaffAvails.length" style="color:#999;font-size:0.85rem">制限なし（終日対応可能）</span>
-                    <div class="inline-form" style="margin-top:8px">
-                        <div class="form-group"><input v-model="newAvailForm.start" type="datetime-local" step="300"></div>
-                        <div class="form-group"><input v-model="newAvailForm.end" type="datetime-local" step="300"></div>
-                        <button class="btn btn-sm" @click="addNewStaffAvail">追加</button>
-                    </div>
-                </template>
-            </div>
-
-            <!-- 希望セッション（新規・編集共通） -->
-            <div class="detail-section" style="margin-top:8px;padding:12px;background:#f8f9fa;border-radius:6px">
-                <h4 style="margin-top:0">希望セッション</h4>
-                <!-- 編集時: サーバー保存済み -->
-                <template v-if="staffForm.editId">
-                    <div v-if="editingStaffPrefs.length" style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
-                        <span class="badge pref" v-for="p in editingStaffPrefs" :key="p.id" style="display:inline-flex;align-items:center;gap:4px">
-                            第{{ p.priority }}希望: {{ p.session ? fmt(p.session.start_time) + ' ' + p.session.title : 'セッション ' + p.session_id }}
-                            <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="removePref(staffForm.editId, p.id)">x</button>
-                        </span>
-                    </div>
-                    <span v-if="!editingStaffPrefs.length" style="color:#999;font-size:0.85rem">希望セッション未設定</span>
-                    <div class="inline-form" style="margin-top:8px">
-                        <div class="form-group" style="flex:2">
-                            <select v-model.number="prefForms[staffForm.editId].session_id">
-                                <option v-for="ss in sessions" :key="ss.id" :value="ss.id">{{ ss.title }} ({{ fmt(ss.start_time) }})</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="flex:1">
-                            <input v-model.number="prefForms[staffForm.editId].priority" type="number" min="1" placeholder="優先度" style="width:80px">
-                        </div>
-                        <button class="btn btn-sm" @click="addPref(staffForm.editId)">追加</button>
-                    </div>
-                </template>
-                <!-- 新規登録時: ローカルリストで管理 -->
-                <template v-else>
-                    <div v-if="newStaffPrefs.length" style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
-                        <span class="badge pref" v-for="(p, idx) in newStaffPrefs" :key="idx" style="display:inline-flex;align-items:center;gap:4px">
-                            第{{ p.priority }}希望: {{ sessionLabel(p.session_id) }}
-                            <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="newStaffPrefs.splice(idx, 1)">x</button>
-                        </span>
-                    </div>
-                    <span v-if="!newStaffPrefs.length" style="color:#999;font-size:0.85rem">希望セッション未設定</span>
-                    <div class="inline-form" style="margin-top:8px">
-                        <div class="form-group" style="flex:2">
-                            <select v-model.number="newPrefForm.session_id">
-                                <option v-for="ss in sessions" :key="ss.id" :value="ss.id">{{ ss.title }} ({{ fmt(ss.start_time) }})</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="flex:1">
-                            <input v-model.number="newPrefForm.priority" type="number" min="1" placeholder="優先度" style="width:80px">
-                        </div>
-                        <button class="btn btn-sm" @click="addNewStaffPref">追加</button>
-                    </div>
-                </template>
-            </div>
-
-            <div style="display:flex;gap:8px;margin-top:12px">
-                <button class="btn" @click="submitStaff">{{ staffForm.editId ? '更新' : '追加' }}</button>
-                <button v-if="staffForm.editId" class="btn btn-danger" @click="cancelEditStaff">キャンセル</button>
+            <div style="margin-bottom:12px">
+                <button class="btn" @click="openStaffModal">＋ スタッフを追加</button>
             </div>
 
             <div style="margin-top:20px">
@@ -489,6 +384,165 @@
                                 第{{ p.priority }}希望: {{ p.session ? fmt(p.session.start_time) + ' ' + p.session.title : 'セッション ' + p.session_id }}
                             </span>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- スタッフ 追加/編集モーダル -->
+            <div v-if="formModals.staff" class="modal-overlay">
+                <div class="modal-box">
+                    <div class="modal-box-header">
+                        <h3>{{ staffForm.editId ? 'スタッフを編集' : 'スタッフを追加' }}</h3>
+                        <button class="modal-close-btn" @click="closeStaffModal">✕</button>
+                    </div>
+                    <!-- 写真アップロード -->
+                    <div style="margin-bottom:12px;display:flex;align-items:center;gap:16px">
+                        <div>
+                            <img v-if="staffPhotoPreview" :src="staffPhotoPreview" class="photo-preview">
+                            <img v-else-if="staffForm.currentPhoto" :src="staffForm.currentPhoto" class="photo-preview">
+                            <span v-else class="speaker-photo-placeholder" style="width:80px;height:80px;font-size:2rem">{{ staffForm.name ? staffForm.name.charAt(0) : '?' }}</span>
+                        </div>
+                        <div>
+                            <label style="font-weight:600;font-size:0.9rem;display:block;margin-bottom:4px">プロフィール写真</label>
+                            <input type="file" accept="image/jpeg,image/png,image/gif,image/webp"
+                                   @change="onNewStaffPhoto($event)" style="display:none">
+                            <button type="button" class="btn" style="background:#607d8b;font-size:0.85rem;padding:6px 14px" @click="$event.target.parentElement.querySelector('input[type=file]').click()">ファイルを選択</button>
+                            <span tabindex="0" @paste.prevent="onPhotoPaste($event)" style="display:inline-block;margin-left:8px;padding:6px 10px;border:1px dashed #90a4ae;border-radius:4px;font-size:0.8rem;color:#607d8b;cursor:text">クリックしてCtrl+Vで貼り付け</span>
+                            <div v-if="staffPhotoPreview" style="margin-top:4px">
+                                <button class="del-btn" @click="clearNewStaffPhoto">取り消し</button>
+                            </div>
+                            <div v-else-if="staffForm.editId && staffForm.currentPhoto" style="margin-top:4px">
+                                <button class="del-btn" @click="deleteStaffPhoto(staffForm.editId)">写真を削除</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>名前 <span class="req">必須</span></label><input v-model="staffForm.name" placeholder="例: 山田 太郎"></div>
+                        <div class="form-group">
+                            <label>アカウント名</label>
+                            <input v-model="staffForm.slack_name" placeholder="例: @yamada-taro">
+                            <span style="font-size:0.75rem;color:#888">Slackなど連絡ツールで表示される名前</span>
+                        </div>
+                        <div class="form-group">
+                            <label>緊急連絡先</label>
+                            <input v-model="staffForm.emergency_contact" placeholder="例: 090-1234-5678">
+                            <span style="font-size:0.75rem;color:#888">電話番号など</span>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group" style="position:relative">
+                            <label>担当</label>
+                            <div @click.stop="roleDropdownOpen = !roleDropdownOpen"
+                                 style="padding:8px 12px;border:1px solid #ccc;border-radius:4px;font-size:0.9rem;cursor:pointer;background:#fff;display:flex;justify-content:space-between;align-items:center;min-height:38px">
+                                <span v-if="staffForm.role.length">{{ staffForm.role.map(r => catLabel(r)).join(', ') }}</span>
+                                <span v-else style="color:#999">なし</span>
+                                <span style="font-size:0.7rem;color:#666">&#9660;</span>
+                            </div>
+                            <div v-if="roleDropdownOpen" @click.stop
+                                 style="position:absolute;top:100%;left:0;right:0;z-index:10;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);padding:4px 0">
+                                <label v-for="opt in roleOptions" :key="opt.v"
+                                       style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:0.9rem;margin:0">
+                                    <input type="checkbox" :value="opt.v" v-model="staffForm.role"
+                                           style="width:16px;height:16px;cursor:pointer;accent-color:#1a73e8">
+                                    {{ opt.l }}
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>過去参加回数 <span class="req">必須</span></label>
+                            <input v-model.number="staffForm.experience_count" type="number" min="0" placeholder="過去参加回数" required>
+                            <span style="font-size:0.75rem;color:#888">0 = 初めて（経験者と一緒に配置されます）</span>
+                        </div>
+                        <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+                            <label style="margin:0"><input type="checkbox" v-model="staffForm.english_ok" style="width:16px;height:16px;cursor:pointer"> 英語対応可</label>
+                        </div>
+                    </div>
+
+                    <!-- 活動可能時間（新規・編集共通） -->
+                    <div class="detail-section" style="margin-top:12px;padding:12px;background:#f8f9fa;border-radius:6px">
+                        <h4 style="margin-top:0">活動可能時間</h4>
+                        <!-- 編集時: サーバー保存済みの時間帯 -->
+                        <template v-if="staffForm.editId">
+                            <template v-if="editingStaffAvails.length">
+                                <span class="badge avail" v-for="a in editingStaffAvails" :key="a.id" style="display:inline-flex;align-items:center;gap:4px">
+                                    {{ fmt(a.start_time) }} - {{ fmtShort(a.end_time) }}
+                                    <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="removeAvail(staffForm.editId, a.id)">x</button>
+                                </span>
+                            </template>
+                            <span v-if="!editingStaffAvails.length" style="color:#999;font-size:0.85rem">制限なし（終日対応可能）</span>
+                            <div class="inline-form" style="margin-top:8px">
+                                <div class="form-group"><input v-model="availForms[staffForm.editId].start" type="datetime-local" step="300"></div>
+                                <div class="form-group"><input v-model="availForms[staffForm.editId].end" type="datetime-local" step="300"></div>
+                                <button class="btn btn-sm" @click="addAvail(staffForm.editId)">追加</button>
+                            </div>
+                        </template>
+                        <!-- 新規登録時: ローカルリストで管理 -->
+                        <template v-else>
+                            <template v-if="newStaffAvails.length">
+                                <span class="badge avail" v-for="(a, idx) in newStaffAvails" :key="idx" style="display:inline-flex;align-items:center;gap:4px">
+                                    {{ fmt(a.start_time) }} - {{ fmtShort(a.end_time) }}
+                                    <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="newStaffAvails.splice(idx, 1)">x</button>
+                                </span>
+                            </template>
+                            <span v-if="!newStaffAvails.length" style="color:#999;font-size:0.85rem">制限なし（終日対応可能）</span>
+                            <div class="inline-form" style="margin-top:8px">
+                                <div class="form-group"><input v-model="newAvailForm.start" type="datetime-local" step="300"></div>
+                                <div class="form-group"><input v-model="newAvailForm.end" type="datetime-local" step="300"></div>
+                                <button class="btn btn-sm" @click="addNewStaffAvail">追加</button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 希望セッション（新規・編集共通） -->
+                    <div class="detail-section" style="margin-top:8px;padding:12px;background:#f8f9fa;border-radius:6px">
+                        <h4 style="margin-top:0">希望セッション</h4>
+                        <!-- 編集時: サーバー保存済み -->
+                        <template v-if="staffForm.editId">
+                            <div v-if="editingStaffPrefs.length" style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+                                <span class="badge pref" v-for="p in editingStaffPrefs" :key="p.id" style="display:inline-flex;align-items:center;gap:4px">
+                                    第{{ p.priority }}希望: {{ p.session ? fmt(p.session.start_time) + ' ' + p.session.title : 'セッション ' + p.session_id }}
+                                    <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="removePref(staffForm.editId, p.id)">x</button>
+                                </span>
+                            </div>
+                            <span v-if="!editingStaffPrefs.length" style="color:#999;font-size:0.85rem">希望セッション未設定</span>
+                            <div class="inline-form" style="margin-top:8px">
+                                <div class="form-group" style="flex:2">
+                                    <select v-model.number="prefForms[staffForm.editId].session_id">
+                                        <option v-for="ss in sessions" :key="ss.id" :value="ss.id">{{ ss.title }} ({{ fmt(ss.start_time) }})</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="flex:1">
+                                    <input v-model.number="prefForms[staffForm.editId].priority" type="number" min="1" placeholder="優先度" style="width:80px">
+                                </div>
+                                <button class="btn btn-sm" @click="addPref(staffForm.editId)">追加</button>
+                            </div>
+                        </template>
+                        <!-- 新規登録時: ローカルリストで管理 -->
+                        <template v-else>
+                            <div v-if="newStaffPrefs.length" style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+                                <span class="badge pref" v-for="(p, idx) in newStaffPrefs" :key="idx" style="display:inline-flex;align-items:center;gap:4px">
+                                    第{{ p.priority }}希望: {{ sessionLabel(p.session_id) }}
+                                    <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="newStaffPrefs.splice(idx, 1)">x</button>
+                                </span>
+                            </div>
+                            <span v-if="!newStaffPrefs.length" style="color:#999;font-size:0.85rem">希望セッション未設定</span>
+                            <div class="inline-form" style="margin-top:8px">
+                                <div class="form-group" style="flex:2">
+                                    <select v-model.number="newPrefForm.session_id">
+                                        <option v-for="ss in sessions" :key="ss.id" :value="ss.id">{{ ss.title }} ({{ fmt(ss.start_time) }})</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="flex:1">
+                                    <input v-model.number="newPrefForm.priority" type="number" min="1" placeholder="優先度" style="width:80px">
+                                </div>
+                                <button class="btn btn-sm" @click="addNewStaffPref">追加</button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div style="display:flex;gap:8px;margin-top:12px">
+                        <button class="btn" @click="submitStaff">{{ staffForm.editId ? '更新' : '追加' }}</button>
+                        <button class="btn btn-danger" @click="closeStaffModal">キャンセル</button>
                     </div>
                 </div>
             </div>
@@ -776,31 +830,8 @@
                 </button>
             </div>
 
-            <div style="margin-bottom:20px;border-radius:8px;padding:16px" :style="{ border: '1px solid ' + cat.color + '40', background: cat.color + '10' }">
-                <h3 style="margin:0 0 12px" :style="{ color: cat.color }">{{ categoryForms[cat.key]?.editId ? cat.label + '編集' : cat.label + '追加' }}</h3>
-                <div class="form-row">
-                    <div class="form-group"><label>{{ cat.label }}名 <span class="req">必須</span></label><input v-model="categoryForms[cat.key].title" placeholder="名前を入力"></div>
-                    <div class="form-group"><label>必要スタッフ数</label><input v-model.number="categoryForms[cat.key].required_staff" type="number" min="1" placeholder="2"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label>開始時刻 <span class="req">必須</span></label><input v-model="categoryForms[cat.key].start_time" type="datetime-local" step="300" @change="autoSetEndTime(categoryForms[cat.key])"></div>
-                    <div class="form-group"><label>終了時刻 <span class="req">必須</span></label><input v-model="categoryForms[cat.key].end_time" type="datetime-local" step="300"></div>
-                    <div class="form-group"><label>場所 <span class="req">必須</span></label>
-                        <select v-model.number="categoryForms[cat.key].room_id">
-                            <option v-for="r in selectableRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label>英語対応</label>
-                        <label style="margin:0;display:flex;align-items:center;gap:4px;padding-top:4px"><input type="checkbox" v-model="categoryForms[cat.key].english_required" style="width:16px;height:16px;cursor:pointer"> 必要</label>
-                    </div>
-                </div>
-                <div class="form-group"><label>備考</label><textarea v-model="categoryForms[cat.key].notes" rows="2"></textarea></div>
-                <div style="display:flex;gap:8px">
-                    <button class="btn" :style="{ background: cat.color }" @click="submitCategory(cat.key)">{{ categoryForms[cat.key]?.editId ? '更新' : '追加' }}</button>
-                    <button v-if="categoryForms[cat.key]?.editId" class="btn btn-danger" @click="cancelEditCategory(cat.key)">キャンセル</button>
-                </div>
+            <div style="margin-bottom:12px">
+                <button class="btn" :style="{ background: cat.color }" @click="openCategoryModal(cat.key)">＋ {{ cat.label }}を追加</button>
             </div>
             <!-- 配置表 -->
             <template v-if="catGroupFiltered(cat.key).length && catGroupTabs[cat.key] !== 0">
@@ -833,6 +864,39 @@
                     </tr>
                 </tbody>
             </table>
+
+            <!-- カテゴリ 追加/編集モーダル -->
+            <div v-if="formModals.category[cat.key]" class="modal-overlay">
+                <div class="modal-box">
+                    <div class="modal-box-header">
+                        <h3 :style="{ color: cat.color }">{{ categoryForms[cat.key]?.editId ? cat.label + 'を編集' : cat.label + 'を追加' }}</h3>
+                        <button class="modal-close-btn" @click="closeCategoryModal(cat.key)">✕</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>{{ cat.label }}名 <span class="req">必須</span></label><input v-model="categoryForms[cat.key].title" placeholder="名前を入力"></div>
+                        <div class="form-group"><label>必要スタッフ数</label><input v-model.number="categoryForms[cat.key].required_staff" type="number" min="1" placeholder="2"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>開始時刻 <span class="req">必須</span></label><input v-model="categoryForms[cat.key].start_time" type="datetime-local" step="300" @change="autoSetEndTime(categoryForms[cat.key])"></div>
+                        <div class="form-group"><label>終了時刻 <span class="req">必須</span></label><input v-model="categoryForms[cat.key].end_time" type="datetime-local" step="300"></div>
+                        <div class="form-group"><label>場所 <span class="req">必須</span></label>
+                            <select v-model.number="categoryForms[cat.key].room_id">
+                                <option v-for="r in selectableRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>英語対応</label>
+                            <label style="margin:0;display:flex;align-items:center;gap:4px;padding-top:4px"><input type="checkbox" v-model="categoryForms[cat.key].english_required" style="width:16px;height:16px;cursor:pointer"> 必要</label>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>備考</label><textarea v-model="categoryForms[cat.key].notes" rows="2"></textarea></div>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn" :style="{ background: cat.color }" @click="submitCategory(cat.key)">{{ categoryForms[cat.key]?.editId ? '更新' : '追加' }}</button>
+                        <button class="btn btn-danger" @click="closeCategoryModal(cat.key)">キャンセル</button>
+                    </div>
+                </div>
+            </div>
         </div>
         </template>
 
@@ -1186,21 +1250,9 @@
                 </button>
             </div>
 
-            <!-- 全体スケジュール登録フォーム -->
-            <div style="margin-bottom:20px;border:1px solid #ffe0b2;border-radius:8px;padding:16px;background:#fff8e1">
-                <h3 style="margin:0 0 12px;color:#e65100">{{ allOvForm.editId ? '全体スケジュール編集' : '全体スケジュール追加' }}</h3>
-                <div class="form-row">
-                    <div class="form-group"><label>タイトル <span class="req">必須</span></label><input v-model="allOvForm.title" placeholder="例: 集合時間、開場、昼休み"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label>開始時刻 <span class="req">必須</span></label><input v-model="allOvForm.start_time" type="datetime-local" step="300" @change="autoSetEndTime(allOvForm)"></div>
-                    <div class="form-group"><label>終了時刻 <span class="req">必須</span></label><input v-model="allOvForm.end_time" type="datetime-local" step="300"></div>
-                </div>
-                <div class="form-group"><label>備考</label><textarea v-model="allOvForm.notes" rows="2" placeholder="例: 正面入口に集合"></textarea></div>
-                <div style="display:flex;gap:8px">
-                    <button class="btn" style="background:#e65100" @click="submitAllOverall">{{ allOvForm.editId ? '更新' : '追加' }}</button>
-                    <button v-if="allOvForm.editId" class="btn btn-danger" @click="cancelAllOverall">キャンセル</button>
-                </div>
+            <!-- 全体スケジュール追加ボタン -->
+            <div style="margin-bottom:12px">
+                <button class="btn" style="background:#e65100" @click="openAllOvModal">＋ 全体スケジュールを追加</button>
             </div>
 
             <!-- 配置表 -->
@@ -1233,6 +1285,28 @@
                     </tr>
                 </tbody>
             </table>
+
+            <!-- 全体スケジュール 追加/編集モーダル -->
+            <div v-if="formModals.allOverall" class="modal-overlay">
+                <div class="modal-box">
+                    <div class="modal-box-header">
+                        <h3 style="color:#e65100">{{ allOvForm.editId ? '全体スケジュールを編集' : '全体スケジュールを追加' }}</h3>
+                        <button class="modal-close-btn" @click="closeAllOvModal">✕</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>タイトル <span class="req">必須</span></label><input v-model="allOvForm.title" placeholder="例: 集合時間、開場、昼休み"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>開始時刻 <span class="req">必須</span></label><input v-model="allOvForm.start_time" type="datetime-local" step="300" @change="autoSetEndTime(allOvForm)"></div>
+                        <div class="form-group"><label>終了時刻 <span class="req">必須</span></label><input v-model="allOvForm.end_time" type="datetime-local" step="300"></div>
+                    </div>
+                    <div class="form-group"><label>備考</label><textarea v-model="allOvForm.notes" rows="2" placeholder="例: 正面入口に集合"></textarea></div>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn" style="background:#e65100" @click="submitAllOverall">{{ allOvForm.editId ? '更新' : '追加' }}</button>
+                        <button class="btn btn-danger" @click="closeAllOvModal">キャンセル</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- ===== 配置アルゴリズム ===== -->

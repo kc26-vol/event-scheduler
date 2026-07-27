@@ -311,3 +311,19 @@ th { background: #f8f9fa; font-weight: 600; }
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
     z-index: 100; display: flex; align-items: center; justify-content: center;
 }
+/* 共通: フォームモーダル本体 */
+.modal-box {
+    background: #fff; border-radius: 8px; padding: 20px;
+    width: calc(100vw - 32px); max-width: 720px;
+    max-height: 90vh; overflow-y: auto; position: relative;
+}
+.modal-box-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+}
+.modal-box-header h3 { margin: 0; }
+.modal-close-btn {
+    background: none; border: none; font-size: 1.2rem; line-height: 1;
+    cursor: pointer; color: #666; padding: 4px 8px;
+}
+.modal-close-btn:hover { color: #333; }
