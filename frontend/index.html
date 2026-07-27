@@ -523,8 +523,8 @@
 
             <!-- 自動配置ボタン -->
             <div v-if="!overallLocked" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-                <button class="btn btn-success" @click="autoAssignOverall()" :disabled="!overallDateTab || overallDateTab === 0">
-                    {{ overallDateTab && overallDateTab !== 0 ? overallDateTab + ' を自動配置' : 'スタッフ自動配置' }}
+                <button v-if="overallDateTab && overallDateTab !== 0" class="btn btn-success" @click="autoAssignOverall()">
+                    {{ overallDateTab }} を自動配置
                 </button>
                 <button class="btn" style="background:#1a73e8" @click="autoAssignOverallSelected()" :disabled="!overallSelectedSessions.size">選択して再配置 <span v-if="overallSelectedSessions.size">({{ overallSelectedSessions.size }}件)</span></button>
                 <button class="btn btn-danger" @click="clearOverallAssignments()">配置をクリア</button>
@@ -658,11 +658,11 @@
 
             <!-- 自動配置ボタン -->
             <div v-if="!groupLocks[grp.id]" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-                <button class="btn btn-success" @click="autoAssignGroup(grp.id)" :disabled="!grpDateTabs[grp.id] || grpDateTabs[grp.id] === 0">
-                    {{ grpDateTabs[grp.id] && grpDateTabs[grp.id] !== 0 ? grpDateTabs[grp.id] + ' を自動配置' : 'スタッフ自動配置' }}
+                <button v-if="grpDateTabs[grp.id] && grpDateTabs[grp.id] !== 0" class="btn btn-success" @click="autoAssignGroup(grp.id)">
+                    {{ grpDateTabs[grp.id] }} を自動配置
                 </button>
                 <button class="btn" style="background:#1a73e8" @click="autoAssignGroupSelected(grp.id)" :disabled="!(groupSelectedSessions[grp.id] && groupSelectedSessions[grp.id].size)">選択して再配置 <span v-if="groupSelectedSessions[grp.id] && groupSelectedSessions[grp.id].size">({{ groupSelectedSessions[grp.id].size }}件)</span></button>
-                <button class="btn" style="background:#f9ab00" @click="autoAssignGroupFill(grp.id)" :disabled="!grpDateTabs[grp.id] || grpDateTabs[grp.id] === 0">未配置を埋める</button>
+                <button v-if="grpDateTabs[grp.id] && grpDateTabs[grp.id] !== 0" class="btn" style="background:#f9ab00" @click="autoAssignGroupFill(grp.id)">未配置を埋める</button>
                 <button class="btn btn-danger" @click="clearGroupAssignments(grp.id)">配置をクリア</button>
                 <span v-if="groupScheduleMsgs[grp.id]" style="font-size:0.85rem;color:#137333">{{ groupScheduleMsgs[grp.id] }}</span>
             </div>
@@ -878,11 +878,11 @@
             </div>
 
             <div v-if="!categoryLocks[cat.key]" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-                <button class="btn btn-success" @click="autoAssignCategory(cat.key)" :disabled="!catTabDate(cat.key)">
-                    {{ catTabDate(cat.key) ? catTabDate(cat.key) + ' を自動配置' : 'スタッフ自動配置' }}
+                <button v-if="catTabDate(cat.key)" class="btn btn-success" @click="autoAssignCategory(cat.key)">
+                    {{ catTabDate(cat.key) }} を自動配置
                 </button>
                 <button class="btn" style="background:#1a73e8" @click="autoAssignCategorySelected(cat.key)" :disabled="!(catSelectedSessions[cat.key] && catSelectedSessions[cat.key].size)">選択して再配置 <span v-if="catSelectedSessions[cat.key] && catSelectedSessions[cat.key].size">({{ catSelectedSessions[cat.key].size }}件)</span></button>
-                <button class="btn" style="background:#f9ab00" @click="autoAssignCategoryFill(cat.key)" :disabled="!catTabDate(cat.key)">未配置を埋める</button>
+                <button v-if="catTabDate(cat.key)" class="btn" style="background:#f9ab00" @click="autoAssignCategoryFill(cat.key)">未配置を埋める</button>
                 <button class="btn btn-danger" @click="clearCategoryAssignments(cat.key)">配置をクリア</button>
                 <div v-if="categoryAssignMsgs[cat.key]" class="msg success" style="margin:0">{{ categoryAssignMsgs[cat.key] }}</div>
             </div>
