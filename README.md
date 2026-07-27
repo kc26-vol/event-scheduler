@@ -137,6 +137,12 @@ Vite dev server が `/api`, `/auth`, `/uploads`, `/public` をバックエンド
 `frontend/dist` をデプロイ物に含めてください。バックエンドは `frontend/dist` を静的配信します
 (見つからない場合は `frontend/public` のみ配信され、アプリ本体は表示されません)。
 
+> **uv 移行PR (#3) との関係について**: Azure (Oryx) の Python ビルドは `requirements.txt` を前提とします。
+> uv 移行PR (kc26-vol/event-scheduler#3) で `requirements.txt` が廃止される場合は、CI で
+> `uv export --format requirements-txt` などにより `requirements.txt` を生成してからデプロイするか、
+> 両PRのマージ後にデプロイ手順の整合を取ってください
+> ([.github/workflows/deploy.yml](.github/workflows/deploy.yml) に生成ステップのコメント例があります)。
+
 ### Azure Web Apps
 
 #### 方法1: GitHub Actions
@@ -191,42 +197,21 @@ az webapp config appsettings set \
 
 Azureポータルで発行プロファイルをダウンロードし、GitHubリポジトリの Settings > Secrets に `AZURE_WEBAPP_PUBLISH_PROFILE` として登録。
 
-`.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy to Azure App Service
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-      - name: Build frontend
-        run: cd frontend && pnpm install && pnpm build
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: <アプリ名>
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-```
+ワークフローファイルは [.github/workflows/deploy.yml](.github/workflows/deploy.yml) を参照してください
+(pnpm のセットアップ → `pnpm install` → `pnpm build` で `frontend/dist` を生成してからデプロイします)。
+`app-name` の `<アプリ名>` を実際の値に書き換えて使います。
 
 #### 方法2: Azure CLI で直接デプロイ
 
+いずれの方法でも、先にローカルでフロントエンドをビルドして `frontend/dist` を生成しておきます
+(Oryx のビルド `SCM_DO_BUILD_DURING_DEPLOYMENT` は Python 依存のインストールのみで、
+Node のビルドは実行されません)。
+
 ```bash
-# プロジェクトディレクトリで実行
+# フロントエンドのビルド (必須)
+cd frontend && pnpm install && pnpm build && cd ..
+
+# プロジェクトディレクトリで実行 (frontend/dist もアップロードされる)
 az webapp up \
   --name <アプリ名> \
   --resource-group <リソースグループ名> \
@@ -237,8 +222,11 @@ az webapp up \
 または ZIP デプロイ:
 
 ```bash
-# プロジェクトをZIPに圧縮
-zip -r deploy.zip . -x ".git/*" "data/*" "__pycache__/*" "*.pyc"
+# フロントエンドのビルド (必須)
+cd frontend && pnpm install && pnpm build && cd ..
+
+# プロジェクトをZIPに圧縮 (frontend/dist を含める)
+zip -r deploy.zip . -x ".git/*" "data/*" "__pycache__/*" "*.pyc" "frontend/node_modules/*"
 
 # デプロイ
 az webapp deploy \
@@ -250,7 +238,12 @@ az webapp deploy \
 
 スタートアップコマンドと環境変数の設定は方法1と同じです。
 
-#### 方法3: ローカルGitデプロイ
+#### 方法3: ローカルGitデプロイ (非推奨)
+
+`frontend/dist` は `.gitignore` で除外されているため、ローカルGitデプロイではビルド成果物が
+デプロイ物に含まれず、アプリ本体が表示されません。使う場合はデプロイ用ブランチで
+`frontend/dist` を強制的にコミット (`git add -f frontend/dist`) するなどの運用が必要です。
+**方法1 (GitHub Actions) または方法2 (Azure CLI) を推奨します。**
 
 ```bash
 # デプロイソースをローカルGitに設定
