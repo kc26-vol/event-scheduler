@@ -229,6 +229,17 @@ const app = createApp({
         async function loadStaffAssignments() {
             staffAssignments.value = ((await (await fetch(API + '/api/assignments/staff-schedule')).json()).staff_assignments || []);
         }
+        // 配置表示の手動更新（他ユーザーの変更を反映）
+        const refreshing = ref(false);
+        async function refreshAssignments() {
+            if (refreshing.value) return;
+            refreshing.value = true;
+            try {
+                await Promise.all([loadRooms(), loadStaffs(), loadSessions(), loadSchedule(), loadStaffAssignments()]);
+            } finally {
+                refreshing.value = false;
+            }
+        }
         // 「全員」overallセッションを全スタッフの担当に含めたスタッフ別詳細
         const CAT_PRIORITY = { overall: 0, session: 1 };
         function _catPriority(cat) {
@@ -3139,6 +3150,7 @@ const app = createApp({
 
         return {
             tab, sidebarOpen, rooms, selectableRooms, overallRoomId, sessions, staffs, schedule, staffAssignments, staffAssignmentsWithAll,
+            refreshing, refreshAssignments,
             scheduleMsg, scheduleMsgError, sessPhotoPreview, sessPhoto,
             roomForm, sessForm, staffForm, roleDropdownOpen, prefForms, availForms, ltTalks,
             venueMaps, venueMapForm, venueMapPreview, venueMapInput, mapModal,

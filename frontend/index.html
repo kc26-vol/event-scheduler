@@ -504,6 +504,9 @@
                     <span v-if="overallLocked">&#128274; ロック中</span>
                     <span v-else>&#128275; 編集中</span>
                 </button>
+                <button class="btn" style="display:flex;align-items:center;gap:6px" @click="refreshAssignments()" :disabled="refreshing">
+                    <span class="refresh-icon" :class="{ spinning: refreshing }">&#8635;</span> 更新
+                </button>
             </div>
 
             <!-- 日程タブ -->
@@ -631,6 +634,9 @@
                         :style="{ background: groupLocks[grp.id] ? '#e8eaed' : '#fce8e6', color: groupLocks[grp.id] ? '#5f6368' : '#c5221f', border: groupLocks[grp.id] ? '1px solid #dadce0' : '1px solid #c5221f', borderRadius: '20px', padding: '5px 14px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }">
                     <span v-if="groupLocks[grp.id]">&#128274; ロック中</span>
                     <span v-else>&#128275; 編集中</span>
+                </button>
+                <button class="btn" style="display:flex;align-items:center;gap:6px" @click="refreshAssignments()" :disabled="refreshing">
+                    <span class="refresh-icon" :class="{ spinning: refreshing }">&#8635;</span> 更新
                 </button>
             </div>
 
@@ -846,6 +852,9 @@
                     <span v-if="categoryLocks[cat.key]">&#128274; ロック中</span>
                     <span v-else>&#128275; 編集中</span>
                 </button>
+                <button class="btn" style="display:flex;align-items:center;gap:6px" @click="refreshAssignments()" :disabled="refreshing">
+                    <span class="refresh-icon" :class="{ spinning: refreshing }">&#8635;</span> 更新
+                </button>
             </div>
 
             <!-- 日程タブ -->
@@ -966,7 +975,12 @@
         <!-- ===== 全体スケジュール ===== -->
         <!-- ===== 全体スケジュール（表示専用） ===== -->
         <div class="panel" :class="{ active: tab === 'all-matrix' }">
-            <h2>全体スケジュール</h2>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+                <h2 style="margin:0">全体スケジュール</h2>
+                <button class="btn" style="display:flex;align-items:center;gap:6px" @click="refreshAssignments()" :disabled="refreshing">
+                    <span class="refresh-icon" :class="{ spinning: refreshing }">&#8635;</span> 更新
+                </button>
+            </div>
 
             <!-- 日程タブ -->
             <div v-if="catDates.length > 0" class="tab-bar">
@@ -1092,7 +1106,12 @@
 
         <!-- ===== スタッフ別詳細 ===== -->
         <div class="panel" :class="{ active: tab === 'staff-detail' }">
-            <h2>スタッフ別詳細</h2>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+                <h2 style="margin:0">スタッフ別詳細</h2>
+                <button class="btn" style="display:flex;align-items:center;gap:6px" @click="refreshAssignments()" :disabled="refreshing">
+                    <span class="refresh-icon" :class="{ spinning: refreshing }">&#8635;</span> 更新
+                </button>
+            </div>
 
             <!-- 担当フィルター -->
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
