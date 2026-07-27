@@ -1011,8 +1011,11 @@ const app = createApp({
             navigator.clipboard.writeText(pubApi.key).then(function() { _pubMsg('APIキーをコピーしました'); });
         }
 
-        async function switchTab(name) {
+        async function switchTab(name, updateUrl = true) {
             tab.value = name;
+            if (updateUrl) {
+                history.pushState(null, '', tabToPath(name));
+            }
             sidebarOpen.value = false;
             if (name === 'rooms') await loadRooms();
             if (name === 'venue-maps') await loadVenueMaps();
@@ -3135,7 +3138,39 @@ const app = createApp({
             return _hasStaff(entry, allStaffFilter.value) ? 1 : 0.15;
         }
 
-        onMounted(async () => { await loadSessionGroups(); await loadCategories(); loadRooms(); loadStaffs(); loadSessions().then(() => loadSchedule()); loadSettings(); });
+        const STATIC_TABS = new Set(['all-matrix', 'staff-detail', 'venue-view', 'overall-manage', 'staffs', 'rooms', 'venue-maps', 'overall-assign', 'algorithm', 'settings', 'auto-backup', 'io', 'public-api', 'help']);
+        function isValidTab(name) {
+            if (STATIC_TABS.has(name)) return true;
+            if (sessionGroups.value.some(g => name === 'grp-' + g.id + '-manage' || name === 'grp-' + g.id + '-assign')) return true;
+            if (categories.value.some(c => name === c.key || name === c.key + '-manage')) return true;
+            return false;
+        }
+
+        // タブ名とURLパスの相互変換 (all-matrix は '/' )
+        function tabToPath(name) {
+            return name === 'all-matrix' ? '/' : '/' + name;
+        }
+        function pathToTab(pathname) {
+            const name = pathname.replace(/^\/+|\/+$/g, '');
+            return name === '' ? 'all-matrix' : name;
+        }
+        // URLパスからタブを復元。無効なパスは '/' に置き換えて all-matrix にフォールバック。
+        function restoreTabFromPath() {
+            const urlTab = pathToTab(location.pathname);
+            if (isValidTab(urlTab)) {
+                switchTab(urlTab, false);
+            } else {
+                history.replaceState(null, '', '/');
+                switchTab('all-matrix', false);
+            }
+        }
+
+        onMounted(async () => {
+            await loadSessionGroups(); await loadCategories();
+            loadSettings();
+            restoreTabFromPath();
+            window.addEventListener('popstate', restoreTabFromPath);
+        });
 
         return {
             tab, sidebarOpen, rooms, selectableRooms, overallRoomId, sessions, staffs, schedule, staffAssignments, staffAssignmentsWithAll,

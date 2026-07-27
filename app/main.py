@@ -381,4 +381,28 @@ def login_page():
 
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+
+
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles with SPA fallback.
+
+    Unknown GET paths that are not API/auth/public endpoints return
+    frontend/index.html so that client-side routes (e.g. /staffs) work on
+    reload or direct access. Existing static files are served as-is.
+    """
+
+    async def get_response(self, path: str, scope):
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if (
+                exc.status_code == 404
+                and scope.get("method") == "GET"
+                and not path.startswith(("api/", "auth/", "public/", "uploads/"))
+            ):
+                return await super().get_response("index.html", scope)
+            raise
+
+
+app.mount("/", SPAStaticFiles(directory="frontend", html=True), name="frontend")
