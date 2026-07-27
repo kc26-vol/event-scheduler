@@ -37,6 +37,7 @@
                 <template v-else-if="entry.assigned_staff.length">
                     <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id">{{ a.staff.name }}</span>
                 </template>
+                <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                 <span v-else class="badge warn">未配置</span>
             </div>
         </div>

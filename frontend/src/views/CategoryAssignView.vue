@@ -26,11 +26,16 @@
             </div>
 
             <div v-if="!categoryLocks[cat.key]" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-                <button class="btn btn-success" @click="autoAssignCategory(cat.key)">スタッフ自動配置</button>
+                <button v-if="catTabDate(cat.key)" class="btn btn-success" @click="autoAssignCategory(cat.key)">
+                    {{ catTabDate(cat.key) }} を自動配置
+                </button>
                 <button class="btn" style="background:#1a73e8" @click="autoAssignCategorySelected(cat.key)" :disabled="!(catSelectedSessions[cat.key] && catSelectedSessions[cat.key].size)">選択して再配置 <span v-if="catSelectedSessions[cat.key] && catSelectedSessions[cat.key].size">({{ catSelectedSessions[cat.key].size }}件)</span></button>
-                <button class="btn" style="background:#f9ab00" @click="autoAssignCategoryFill(cat.key)">未配置を埋める</button>
+                <button v-if="catTabDate(cat.key)" class="btn" style="background:#f9ab00" @click="autoAssignCategoryFill(cat.key)">未配置を埋める</button>
                 <button class="btn btn-danger" @click="clearCategoryAssignments(cat.key)">配置をクリア</button>
                 <div v-if="categoryAssignMsgs[cat.key]" class="msg success" style="margin:0">{{ categoryAssignMsgs[cat.key] }}</div>
+            </div>
+            <div v-if="!categoryLocks[cat.key] && !catTabDate(cat.key)" style="margin-bottom:12px;font-size:0.85rem;color:#b06000;background:#fff8e1;border-radius:6px;padding:8px 12px">
+                自動配置は日程ごとに実行します。上の日程タブから日付を選んでください。選んだ日の全セッション（全カテゴリ）がまとめて配置されます。
             </div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
                 <label style="font-weight:600;font-size:0.9rem">スタッフ絞り込み:</label>
@@ -80,6 +85,7 @@
                                     <template v-if="entry.assigned_staff.length">
                                         <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id" style="font-size:0.7rem">{{ a.staff.name }}</span>
                                     </template>
+                                    <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368;font-size:0.7rem">配置不要</span>
                                     <span v-else class="badge warn" style="font-size:0.7rem">未配置</span>
                                 </div>
                             </div>
@@ -108,6 +114,7 @@
                                             <button v-if="!categoryLocks[cat.key]" @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
                                         </span>
                                     </template>
+                                    <span v-else-if="e.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                     <span v-else class="badge warn">未配置</span>
                                     <template v-if="!categoryLocks[cat.key]">
                                         <select v-model.number="assignStaffSelect[e.session.id]" style="padding:2px 6px;font-size:0.8rem;border:1px solid #ccc;border-radius:4px;margin-left:4px">
@@ -169,7 +176,7 @@ const {
     grpSessionStyle, grpDragSessionStyle, onGrpDragStart, grpSelectedSession,
     grpSelectedEntry, categories, dynamicCatKeys, categoryLocks,
     categoryForms, categoryAssignMsgs, categoryStaffFilters, categorySessions,
-    catDates, catKeyDates, catGroupTabs, catGroupFiltered,
+    catDates, catKeyDates, catGroupTabs, catGroupFiltered, catTabDate,
     catTimelineByGroup, filteredCategorySessions, catSessionOpacity, cancelEditCategory,
     editCategory, submitCategory, deleteCategory, autoAssignCategory,
     clearCategoryAssignments, catSelectedSessions, autoAssignCategorySelected, autoAssignCategoryFill,
@@ -212,7 +219,7 @@ const {
     allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
     allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
     cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
-    autoAssignAll, filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
+    filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
     CAT_BG, abSettings, abStatus, abHistory,
     abMsg, abDownload, loadAbSettings, loadAbStatus,
     loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,

@@ -372,7 +372,7 @@ const {
     allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
     allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
     cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
-    autoAssignAll, filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
+    filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
     CAT_BG, abSettings, abStatus, abHistory,
     abMsg, abDownload, loadAbSettings, loadAbStatus,
     loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,

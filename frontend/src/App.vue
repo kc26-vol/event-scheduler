@@ -139,6 +139,7 @@
                             </div>
                         </div>
                     </template>
+                    <span v-else-if="sessDetailSession.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                     <span v-else class="badge warn">未配置</span>
                 </div>
                 <!-- 編集可能 -->
@@ -153,6 +154,7 @@
                             <button @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
                         </span>
                     </template>
+                    <span v-else-if="sessDetailSession.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                     <span v-else class="badge warn">未配置</span>
                 </div>
                 <div v-if="!sessDetailLocked" style="margin-top:8px;display:flex;align-items:center;gap:6px">
@@ -260,7 +262,7 @@ const {
     allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
     allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
     cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
-    autoAssignAll, filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
+    filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
     CAT_BG, abSettings, abStatus, abHistory,
     abMsg, abDownload, loadAbSettings, loadAbStatus,
     loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,

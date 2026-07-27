@@ -43,8 +43,20 @@
                     <li><strong>活動可能時間:</strong> スタッフの活動可能時間帯にセッション全体が収まること（未設定の場合は制約なし）</li>
                     <li><strong>時間重複:</strong> 既に配置済みの別セッションと時間が重複しないこと</li>
                     <li><strong>移動時間:</strong> 別部屋のセッションへは最低10分の間隔があること</li>
-                    <li><strong>最大稼働時間:</strong> スタッフの合計稼働時間が上限を超えないこと</li>
+                    <li><strong>最大稼働時間:</strong> <strong>その日の</strong>合計稼働時間が上限（max_hours）を超えないこと。前日までの担当は上限を消費しません</li>
                     <li><strong>配置人数:</strong> 各セッションに設定された必要人数どおりに配置（必要人数0は配置しない）</li>
+                </ul>
+            </div>
+
+            <!-- 実行単位 -->
+            <div style="background:#e8f0fe;border:1px solid #a8c7fa;border-radius:8px;padding:16px 20px;margin-bottom:16px">
+                <h3 style="margin:0 0 8px;font-size:1rem;color:#174ea6">実行単位は「1日」</h3>
+                <ul style="margin:0;padding-left:20px;font-size:0.9rem;color:#555;line-height:1.8">
+                    <li>自動配置は<strong>日程ごと</strong>に実行します。全日程を一括で配置する機能はありません</li>
+                    <li>日付を選んで実行すると、<strong>その日の全カテゴリ</strong>（セッション担当・受付案内・懇親会など）がまとめて配置されます</li>
+                    <li>ハード制約と負荷の平準化は1日単位で適用します。他の日の配置は書き換えません</li>
+                    <li>日をまたいだ偏りは、ハード制約ではなくスコアのソフトな減点（他の日の担当 -2/件・-2/時間）として考慮します</li>
+                    <li>3日開催なら、3日分それぞれ実行してください</li>
                 </ul>
             </div>
 
@@ -59,9 +71,10 @@
                         <tr><td><strong>英語対応</strong></td><td style="color:#1a73e8;font-weight:700">+50</td><td>英語対応が必要なセッションで、英語OKスタッフの場合</td></tr>
                         <tr><td><strong>スキルマッチ</strong></td><td style="color:#1a73e8;font-weight:700">+10</td><td>スタッフのスキルにセッションカテゴリが含まれる場合</td></tr>
                         <tr><td><strong>ロールマッチ</strong></td><td style="color:#1a73e8;font-weight:700">+5</td><td>スタッフのロールにセッションの対象ロールが含まれる場合</td></tr>
-                        <tr><td><strong>担当件数均等化</strong></td><td style="color:#d93025;font-weight:700">-8 / 件</td><td>既に担当しているセッション数に応じて減点</td></tr>
-                        <tr><td><strong>担当時間均等化</strong></td><td style="color:#d93025;font-weight:700">-12 / 時間</td><td>既に担当している合計時間に応じて減点</td></tr>
-                        <tr><td><strong>未配置スタッフ優先</strong></td><td style="color:#1a73e8;font-weight:700">+30</td><td>まだ1件も担当していないスタッフに加点</td></tr>
+                        <tr><td><strong>担当件数均等化</strong></td><td style="color:#d93025;font-weight:700">-8 / 件</td><td>その日に既に担当しているセッション数に応じて減点</td></tr>
+                        <tr><td><strong>担当時間均等化</strong></td><td style="color:#d93025;font-weight:700">-12 / 時間</td><td>その日に既に担当している合計時間に応じて減点</td></tr>
+                        <tr><td><strong>未配置スタッフ優先</strong></td><td style="color:#1a73e8;font-weight:700">+30</td><td>その日まだ1件も担当していないスタッフに加点</td></tr>
+                        <tr><td><strong>日またぎの偏り</strong></td><td style="color:#d93025;font-weight:700">-2 / 件・時間</td><td>他の日の担当件数・担当時間に応じて軽く減点（配置可否は左右しない）</td></tr>
                         <tr><td><strong>階移動ペナルティ</strong></td><td style="color:#d93025;font-weight:700">-3 / 階</td><td>直前セッションの部屋と階が異なる場合、階差分だけ減点</td></tr>
                         <tr><td><strong>連続配置ペナルティ</strong></td><td style="color:#d93025;font-weight:700">-40</td><td>直前の担当が30分未満の間隔で続く場合</td></tr>
                         <tr><td><strong>同部屋連続ペナルティ</strong></td><td style="color:#d93025;font-weight:700">-25</td><td>直近2セッション内に同じ部屋の担当がある場合（休憩を挟んでも対象）</td></tr>
@@ -205,7 +218,7 @@ const {
     allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
     allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
     cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
-    autoAssignAll, filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
+    filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
     CAT_BG, abSettings, abStatus, abHistory,
     abMsg, abDownload, loadAbSettings, loadAbStatus,
     loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,

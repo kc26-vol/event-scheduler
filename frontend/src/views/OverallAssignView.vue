@@ -26,10 +26,15 @@
 
             <!-- 自動配置ボタン -->
             <div v-if="!overallLocked" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-                <button class="btn btn-success" @click="autoAssignOverall()">スタッフ自動配置</button>
+                <button v-if="overallDateTab && overallDateTab !== 0" class="btn btn-success" @click="autoAssignOverall()">
+                    {{ overallDateTab }} を自動配置
+                </button>
                 <button class="btn" style="background:#1a73e8" @click="autoAssignOverallSelected()" :disabled="!overallSelectedSessions.size">選択して再配置 <span v-if="overallSelectedSessions.size">({{ overallSelectedSessions.size }}件)</span></button>
                 <button class="btn btn-danger" @click="clearOverallAssignments()">配置をクリア</button>
                 <div v-if="overallAssignMsg" class="msg success" style="margin:0">{{ overallAssignMsg }}</div>
+            </div>
+            <div v-if="!overallLocked && (!overallDateTab || overallDateTab === 0)" style="margin-bottom:12px;font-size:0.85rem;color:#b06000;background:#fff8e1;border-radius:6px;padding:8px 12px">
+                自動配置は日程ごとに実行します。上の日程タブから日付を選んでください。選んだ日の全セッション（全カテゴリ）がまとめて配置されます。
             </div>
 
             <!-- スタッフフィルター -->
@@ -73,6 +78,7 @@
                                     <template v-else-if="entry.assigned_staff.length">
                                         <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id">{{ a.staff.name }}</span>
                                     </template>
+                                    <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                     <span v-else class="badge warn">未配置</span>
                                 </div>
                             </div>
@@ -108,6 +114,7 @@
                                             <button v-if="!overallLocked" @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
                                         </span>
                                     </template>
+                                    <span v-else-if="e.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                     <span v-else class="badge warn">未配置</span>
                                 </template>
                                 <template v-if="!overallLocked">
@@ -206,7 +213,7 @@ const {
     allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
     allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
     cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
-    autoAssignAll, filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
+    filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
     CAT_BG, abSettings, abStatus, abHistory,
     abMsg, abDownload, loadAbSettings, loadAbStatus,
     loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,
