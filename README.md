@@ -63,16 +63,21 @@
 
 ## 技術構成
 
-- **Backend**: Python 3.11 + FastAPI + SQLAlchemy + SQLite
+- **Backend**: Python 3.13 + FastAPI + SQLAlchemy + SQLite
 - **Frontend**: Vue 3 (CDN) + vanilla JS/CSS
 - **Server**: Gunicorn + Uvicorn Worker
+- **パッケージ管理**: [uv](https://docs.astral.sh/uv/)
 
 ## ローカル実行
 
+[uv](https://docs.astral.sh/uv/) をインストールした上で、以下を実行します。
+
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+`uv sync` が `.python-version` で指定された Python 3.13 系の仮想環境 (`.venv`) を作成し、`pyproject.toml` / `uv.lock` に基づいて依存関係をインストールします。
 
 ブラウザで http://localhost:8000 にアクセス。
 
@@ -91,6 +96,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ## デプロイ例
 
 ### Azure Web Apps
+
+> **注意**: 依存関係は uv (`pyproject.toml` / `uv.lock`) で管理しており、`requirements.txt` は廃止されました。Azure の Oryx ビルド (`SCM_DO_BUILD_DURING_DEPLOYMENT`) は `requirements.txt` を前提とするため、デプロイ時は uv を使ったビルド手順への置き換えが必要です。
 
 #### 方法1: GitHub Actions
 
@@ -112,7 +119,7 @@ az webapp create \
   --name <アプリ名> \
   --resource-group <リソースグループ名> \
   --plan <プラン名> \
-  --runtime "PYTHON|3.11"
+  --runtime "PYTHON|3.13"
 ```
 
 2. **スタートアップコマンド設定**
@@ -173,7 +180,7 @@ jobs:
 az webapp up \
   --name <アプリ名> \
   --resource-group <リソースグループ名> \
-  --runtime "PYTHON|3.11" \
+  --runtime "PYTHON|3.13" \
   --sku F1
 ```
 

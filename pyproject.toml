@@ -1,0 +1,19 @@
+[project]
+name = "event-scheduler"
+version = "0.1.0"
+description = "カンファレンスのセッション管理・スタッフ配置を行うWebアプリケーション"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "sqlalchemy==2.0.35",
+    "pydantic==2.9.2",
+    "python-multipart",
+    "openpyxl",
+    "Pillow",
+    "gunicorn",
+    "httpx",
+]
+
+[tool.uv]
+package = false
