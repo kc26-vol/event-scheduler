@@ -21,9 +21,11 @@ from ..schemas import (
 from ..utils import is_staff_available as _is_available
 
 DEFAULT_TRAVEL_MINUTES = 10  # 別部屋間の移動に必要な最低時間（設定で変更可）
-LOAD_COUNT_PENALTY = 8   # 負荷均等化: 担当1件あたりの減点
-LOAD_HOURS_PENALTY = 12  # 負荷均等化: 累計担当1時間あたりの減点
-UNASSIGNED_BONUS = 30    # まだ1件も担当していないスタッフへの加点
+LOAD_COUNT_PENALTY = 8   # 負荷均等化: 同じ日の担当1件あたりの減点
+LOAD_HOURS_PENALTY = 12  # 負荷均等化: 同じ日の累計担当1時間あたりの減点
+UNASSIGNED_BONUS = 30    # その日まだ1件も担当していないスタッフへの加点
+CROSS_DAY_COUNT_PENALTY = 2  # 日またぎの偏りへのソフトな減点: 他の日の担当1件あたり
+CROSS_DAY_HOURS_PENALTY = 2  # 日またぎの偏りへのソフトな減点: 他の日の累計担当1時間あたり
 
 
 def _get_travel_buffer(db: Session) -> timedelta:
@@ -106,6 +108,10 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
     session_ids が指定された場合、そのセッションのみ再配置する（他は維持）。
     空の場合は全セッションを再配置する。
     fill_only の場合、既存配置を維持したまま不足分のみ追加配置する。
+
+    ハード制約（活動可能時間・時間重複・移動時間・max_hours）と負荷均等化は
+    日単位で適用する。全日程を通した偏りはスコアのソフトな減点として考慮し、
+    配置可能なスタッフがいるのに未配置になる事態を防ぐ。
     """
     target_ids = set(body.session_ids) if body and body.session_ids else set()
     fill_only = bool(body and body.fill_only)
@@ -140,10 +146,34 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
     # スタッフごとの割り当て済みセッションと合計時間を追跡
     staff_sessions: dict[int, list[SessionModel]] = {s.id: [] for s in staffs}
     staff_hours: dict[int, float] = {s.id: 0.0 for s in staffs}
+    # 日ごとの割り当てセッション・担当時間（ハード制約と平準化は日単位で適用）
+    staff_day_sessions: dict[int, dict] = {s.id: {} for s in staffs}
+    staff_day_hours: dict[int, dict] = {s.id: {} for s in staffs}
     # 初回スタッフが経験者と一緒に1セッション担当済みかどうか
     newcomer_trained: set[int] = set()
     # スタッフペアの共演回数（同じペアの繰り返しを避けるため）
     pair_count: dict[tuple[int, int], int] = {}
+
+    def _day_key(sess) -> object:
+        return sess.start_time.date()
+
+    def _add_staff_session(staff_id, sess):
+        dur = (sess.end_time - sess.start_time).total_seconds() / 3600
+        staff_sessions[staff_id].append(sess)
+        staff_hours[staff_id] += dur
+        day = _day_key(sess)
+        staff_day_sessions[staff_id].setdefault(day, []).append(sess)
+        staff_day_hours[staff_id][day] = staff_day_hours[staff_id].get(day, 0.0) + dur
+
+    def _remove_staff_session(staff_id, sess):
+        dur = (sess.end_time - sess.start_time).total_seconds() / 3600
+        staff_sessions[staff_id] = [s for s in staff_sessions[staff_id] if s.id != sess.id]
+        staff_hours[staff_id] -= dur
+        day = _day_key(sess)
+        if day in staff_day_sessions[staff_id]:
+            staff_day_sessions[staff_id][day] = [s for s in staff_day_sessions[staff_id][day] if s.id != sess.id]
+        if day in staff_day_hours[staff_id]:
+            staff_day_hours[staff_id][day] -= dur
 
     def _bump_pairs(staff_ids):
         for i in range(len(staff_ids)):
@@ -163,9 +193,7 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
         for a in existing:
             if a.session_id in sessions_by_id:
                 sess = sessions_by_id[a.session_id]
-                staff_sessions[a.staff_id].append(sess)
-                dur = (sess.end_time - sess.start_time).total_seconds() / 3600
-                staff_hours[a.staff_id] += dur
+                _add_staff_session(a.staff_id, sess)
                 # 維持されるセッション（再配置対象外）のペアのみ先行カウント
                 if a.session_id not in processed_ids:
                     seed_pairs.setdefault(a.session_id, []).append(a.staff_id)
@@ -186,6 +214,7 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
             continue
 
         session_duration = (session.end_time - session.start_time).total_seconds() / 3600
+        day = _day_key(session)  # 制約・平準化を適用する日単位のスコープ
         # 設定された必要人数どおりに配置（1なら1名）。0/-1/overallは前段でスキップ済み
         effective_required = session.required_staff
         # fill_only: 既存配置人数を起点に不足分のみ追加
@@ -232,14 +261,20 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
             # 英語対応: 英語必要セッションでは英語対応スタッフを優先
             if session.english_required and staff.english_ok:
                 score += 50
-            # 負荷均等化: 担当件数と累計担当時間の両方で減点
-            score -= len(staff_sessions[staff.id]) * LOAD_COUNT_PENALTY
-            score -= staff_hours[staff.id] * LOAD_HOURS_PENALTY
-            # 未配置スタッフを優先（全員に担当が行き渡るようにする）
-            if not staff_sessions[staff.id]:
+            # 負荷均等化: 同じ日の担当件数と累計担当時間の両方で減点
+            day_sessions = staff_day_sessions[staff.id].get(day, [])
+            day_hours = staff_day_hours[staff.id].get(day, 0.0)
+            score -= len(day_sessions) * LOAD_COUNT_PENALTY
+            score -= day_hours * LOAD_HOURS_PENALTY
+            # 日またぎの偏りはソフトな減点として考慮（配置可否のハード制約にはしない）
+            score -= (len(staff_sessions[staff.id]) - len(day_sessions)) * CROSS_DAY_COUNT_PENALTY
+            score -= (staff_hours[staff.id] - day_hours) * CROSS_DAY_HOURS_PENALTY
+            # その日まだ担当していないスタッフを優先（全員に担当が行き渡るようにする）
+            if not day_sessions:
                 score += UNASSIGNED_BONUS
 
-            prev_sessions = staff_sessions[staff.id]
+            # 階移動・連続配置などのペナルティは同じ日の担当のみを対象にする
+            prev_sessions = day_sessions
             # このセッション開始前のセッションを新しい順に
             before = sorted(
                 (s for s in prev_sessions if s.end_time <= session.start_time),
@@ -263,7 +298,8 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
             candidates.append(staff)
 
         def _can_assign(staff):
-            if staff_hours[staff.id] + session_duration > staff.max_hours:
+            # max_hours は日ごとの上限として適用（全日程合計では制限しない）
+            if staff_day_hours[staff.id].get(day, 0.0) + session_duration > staff.max_hours:
                 return False
             for assigned_session in staff_sessions[staff.id]:
                 # 時間重複は不可
@@ -308,8 +344,7 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
 
         def _do_assign(staff):
             db.add(Assignment(session_id=session.id, staff_id=staff.id, role=session_role))
-            staff_sessions[staff.id].append(session)
-            staff_hours[staff.id] += session_duration
+            _add_staff_session(staff.id, session)
             current_ids.append(staff.id)
 
         # 既存配置（fill_only等）に経験者がいるかどうか
@@ -364,7 +399,7 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
         for sess in staff_sessions[staff.id]:
             session_staff_map.setdefault(sess.id, []).append(staff)
 
-    def _swap_assignment(from_session_id, from_staff_id, to_session_id, to_staff_id, dur_from, dur_to):
+    def _swap_assignment(from_session_id, from_staff_id, to_session_id, to_staff_id):
         """2つのセッション間でスタッフを入れ替える"""
         db.query(Assignment).filter(
             Assignment.session_id == from_session_id, Assignment.staff_id == from_staff_id
@@ -376,12 +411,10 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
         to_sess = next(s for s in sessions if s.id == to_session_id)
         db.add(Assignment(session_id=from_session_id, staff_id=to_staff_id, role=from_sess.category or "support"))
         db.add(Assignment(session_id=to_session_id, staff_id=from_staff_id, role=to_sess.category or "support"))
-        staff_sessions[from_staff_id] = [s for s in staff_sessions[from_staff_id] if s.id != from_session_id]
-        staff_sessions[to_staff_id] = [s for s in staff_sessions[to_staff_id] if s.id != to_session_id]
-        staff_sessions[to_staff_id].append(from_sess)
-        staff_sessions[from_staff_id].append(to_sess)
-        staff_hours[from_staff_id] += dur_to - dur_from
-        staff_hours[to_staff_id] += dur_from - dur_to
+        _remove_staff_session(from_staff_id, from_sess)
+        _remove_staff_session(to_staff_id, to_sess)
+        _add_staff_session(to_staff_id, from_sess)
+        _add_staff_session(from_staff_id, to_sess)
 
     staffs_by_id = {s.id: s for s in staffs}
 
@@ -441,12 +474,14 @@ def auto_assign_staff(body: AutoAssignRequest | None = None, db: Session = Depen
                         continue
 
                     other_dur = (other_sess.end_time - other_sess.start_time).total_seconds() / 3600
-                    if staff_hours[exp_staff.id] - other_dur + session_duration > exp_staff.max_hours:
+                    # max_hours は日ごとの上限として適用（スワップ対象は同時間帯=同じ日）
+                    swap_day = _day_key(session)
+                    if staff_day_hours[exp_staff.id].get(swap_day, 0.0) - other_dur + session_duration > exp_staff.max_hours:
                         continue
-                    if staff_hours[newcomer.id] - session_duration + other_dur > newcomer.max_hours:
+                    if staff_day_hours[newcomer.id].get(swap_day, 0.0) - session_duration + other_dur > newcomer.max_hours:
                         continue
 
-                    _swap_assignment(session.id, newcomer.id, other_sess.id, exp_staff.id, session_duration, other_dur)
+                    _swap_assignment(session.id, newcomer.id, other_sess.id, exp_staff.id)
                     session_staff_map[session.id] = [s for s in session_staff_map[session.id] if s.id != newcomer.id] + [exp_staff]
                     session_staff_map[other_sess.id] = [s for s in session_staff_map[other_sess.id] if s.id != exp_staff.id] + [newcomer]
                     swapped = True
