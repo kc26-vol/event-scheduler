@@ -363,7 +363,7 @@ def setup_page():
     from .auth_middleware import is_setup_complete
     if is_setup_complete():
         return RedirectResponse(url="/login.html", status_code=302)
-    html = Path("frontend/setup.html").read_text(encoding="utf-8")
+    html = Path("frontend/public/setup.html").read_text(encoding="utf-8")
     return HTMLResponse(content=html)
 
 
@@ -375,10 +375,36 @@ def login_page():
         title = row.value if row and row.value else "Event Scheduler"
     finally:
         db.close()
-    html = Path("frontend/login.html").read_text(encoding="utf-8")
+    html = Path("frontend/public/login.html").read_text(encoding="utf-8")
     html = html.replace("{{APP_TITLE}}", title)
     return HTMLResponse(content=html)
 
 
+class SPAStaticFiles(StaticFiles):
+    """SPA 配信用 StaticFiles。
+
+    /api, /auth, /uploads, /public 等は先に登録されたルーター/マウントが処理する。
+    ここに到達したパスで実ファイルが存在しない場合 (例: /rooms, /staff-detail などの
+    Vue Router のクライアントサイドルート) は index.html を返す。
+    """
+
+    async def get_response(self, path: str, scope):
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            if e.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+
+
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+
+# フロントエンドは Vite ビルド成果物 (frontend/dist) を配信する。
+# 未ビルドの場合は frontend/public (login.html 等の静的ファイルのみ) にフォールバック。
+_frontend_dist = Path("frontend/dist")
+_frontend_static = _frontend_dist if _frontend_dist.is_dir() else Path("frontend/public")
+if not _frontend_dist.is_dir():
+    print("[frontend] frontend/dist が見つかりません。`cd frontend && pnpm build` を実行してください")
+app.mount("/", SPAStaticFiles(directory=str(_frontend_static), html=True), name="frontend")

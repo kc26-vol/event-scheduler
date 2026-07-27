@@ -64,17 +64,57 @@
 ## 技術構成
 
 - **Backend**: Python 3.11 + FastAPI + SQLAlchemy + SQLite
-- **Frontend**: Vue 3 (CDN) + vanilla JS/CSS
+- **Frontend**: Vue 3 (SFC) + Vue Router + Vite (パッケージマネージャ: pnpm)
 - **Server**: Gunicorn + Uvicorn Worker
+
+### フロントエンド構成
+
+```
+frontend/
+├── index.html          # Vite エントリ
+├── vite.config.js      # dev server の /api, /auth, /uploads, /public プロキシ設定
+├── public/             # そのままコピーされる静的ファイル (login.html, setup.html, robots.txt)
+└── src/
+    ├── main.js         # アプリ初期化 (ルーター / グローバルコンポーネント登録)
+    ├── App.vue         # サイドバーレイアウト + 共通モーダル + <router-view>
+    ├── router.js       # ルート定義とタブ名⇔パスの対応
+    ├── store.js        # グローバルストア (全状態・API呼び出しを集約した composable)
+    ├── assets/style.css
+    ├── components/     # 共通コンポーネント (TlGrid など)
+    └── views/          # ページ単位の SFC (全体スケジュール, スタッフ管理, 部屋管理, ...)
+```
+
+各ページは URL パスで分かれています (例: `/` = 全体スケジュール, `/staffs` = スタッフ管理,
+`/groups/:id/manage` = セッショングループ管理)。リロード時は URL に基づいて同じページが復元されます。
 
 ## ローカル実行
 
+フロントエンドのビルドが必要です (初回のみ + フロントエンド変更時)。
+
 ```bash
+# フロントエンドのビルド (要 pnpm)
+cd frontend
+pnpm install
+pnpm build
+cd ..
+
+# バックエンド起動 (ビルド成果物 frontend/dist を配信)
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ブラウザで http://localhost:8000 にアクセス。
+
+### フロントエンド開発 (ホットリロード)
+
+```bash
+# バックエンドを :8000 で起動した状態で
+cd frontend
+pnpm dev    # http://localhost:5173
+```
+
+Vite dev server が `/api`, `/auth`, `/uploads`, `/public` をバックエンド
+(デフォルト `http://localhost:8000`、`BACKEND_URL` 環境変数で変更可) にプロキシします。
 
 ## 環境変数
 
@@ -89,6 +129,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 | `IPINFO_TOKEN` | ipinfo.ioトークン | (なし) |
 
 ## デプロイ例
+
+デプロイ前にフロントエンドのビルド (`cd frontend && pnpm install && pnpm build`) を行い、
+`frontend/dist` をデプロイ物に含めてください。バックエンドは `frontend/dist` を静的配信します
+(見つからない場合は `frontend/public` のみ配信され、アプリ本体は表示されません)。
 
 ### Azure Web Apps
 
@@ -159,6 +203,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Build frontend
+        run: cd frontend && pnpm install && pnpm build
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:

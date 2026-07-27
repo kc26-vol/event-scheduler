@@ -1,7 +1,36 @@
-const { createApp, ref, reactive, computed, onMounted } = Vue;
+// グローバルストア (旧 app.js のルートコンポーネントの状態・ロジックを集約)
+// シングルトンの composable として提供し、各ビューは setup() で useStore() を返すだけで
+// 従来のテンプレートがそのまま動作する。
+import { ref, reactive, computed } from 'vue'
 
-const app = createApp({
-    setup() {
+let _store = null
+let _initialLoad = null
+let _navigate = null
+
+// main.js からルーター遷移関数を注入する (store -> router の直接依存を避けるため)
+export function setTabNavigator(fn) { _navigate = fn }
+
+export function useStore() {
+    if (!_store) _store = _createStore()
+    return _store
+}
+
+// ルート遷移時に router.afterEach から呼ばれる (データロード等)
+export async function enterTab(name) {
+    return useStore()._enterTab(name)
+}
+
+// App.vue の onMounted から一度だけ呼ばれる初期ロード
+export async function runInitialLoad() {
+    useStore()
+    if (_initialLoad) {
+        const f = _initialLoad
+        _initialLoad = null
+        await f()
+    }
+}
+
+function _createStore() {
         const API = '';
         const DEFAULT_SESSION_CATS = [
             { key: 'general', label: '一般' },
@@ -1011,7 +1040,7 @@ const app = createApp({
             navigator.clipboard.writeText(pubApi.key).then(function() { _pubMsg('APIキーをコピーしました'); });
         }
 
-        async function switchTab(name) {
+        async function _enterTab(name) {
             tab.value = name;
             sidebarOpen.value = false;
             if (name === 'rooms') await loadRooms();
@@ -3135,9 +3164,16 @@ const app = createApp({
             return _hasStaff(entry, allStaffFilter.value) ? 1 : 0.15;
         }
 
-        onMounted(async () => { await loadSessionGroups(); await loadCategories(); loadRooms(); loadStaffs(); loadSessions().then(() => loadSchedule()); loadSettings(); });
+        _initialLoad = (async () => { await loadSessionGroups(); await loadCategories(); loadRooms(); loadStaffs(); loadSessions().then(() => loadSchedule()); loadSettings(); });
 
-        return {
+        // タブ切り替え = ルート遷移。遷移後の afterEach が _enterTab を呼ぶ。
+        function switchTab(name) {
+            if (_navigate) { _navigate(name); return }
+            _enterTab(name)
+        }
+
+                return {
+            _enterTab,
             tab, sidebarOpen, rooms, selectableRooms, overallRoomId, sessions, staffs, schedule, staffAssignments, staffAssignmentsWithAll,
             scheduleMsg, scheduleMsgError, sessPhotoPreview, sessPhoto,
             roomForm, sessForm, staffForm, roleDropdownOpen, prefForms, availForms, ltTalks,
@@ -3207,24 +3243,4 @@ const app = createApp({
             pubApi, pubHistory, pubMsg, pubMsgError, pubApiUrl,
             loadPubApiSettings, savePubApiSettings, regenerateApiKey, clearGithubToken, publishSnapshot, loadPubHistory, activateSnapshot, deleteSnapshot, copyApiUrl, copyApiKey,
         };
-    }
-});
-
-// タイムライングリッド共通コンポーネント
-app.component('tl-grid', {
-    template: '#tl-grid-template',
-    props: {
-        gridStyle: { type: Object, default: () => ({}) },
-        rooms: { type: Array, default: () => [] },
-        labels: { type: Array, default: () => [] },
-        entries: { type: Array, default: () => [] },
-        color: { type: String, default: '#1a73e8' },
-        entryStyle: { type: Function, required: true },
-        fmtShort: { type: Function, required: true },
-        showSpeaker: { type: Boolean, default: false },
-    },
-    emits: ['select', 'dragstart'],
-});
-
-app.mount('#app');
-
+}
