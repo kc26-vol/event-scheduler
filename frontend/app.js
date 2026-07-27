@@ -177,6 +177,9 @@ const app = createApp({
         const ltTalks = reactive([]);
         const staffForm = reactive({ editId: null, name: '', slack_name: '', emergency_contact: '', role: [], experience_count: 0, english_ok: false, currentPhoto: '' });
         const roleDropdownOpen = ref(false);
+
+        // --- フォームモーダル開閉状態 ---
+        const formModals = reactive({ room: false, venueMap: false, staff: false, allOverall: false, group: {}, category: {} });
         const newStaffPhotoFile = ref(null);
         const staffPhotoPreview = ref('');
         const prefForms = reactive({});
@@ -1073,11 +1076,11 @@ const app = createApp({
                     });
                     return;
                 }
-                // セッション管理タブ（編集中はスキップ）
+                // セッション管理タブ（編集中・フォームモーダル表示中はスキップ）
                 var grpMatch = t.match(/^grp-(\d+)-manage$/);
                 if (grpMatch) {
                     var gid = parseInt(grpMatch[1]);
-                    if (groupSessForms[gid] && groupSessForms[gid].editId) return;
+                    if (groupSessForms[gid] && (groupSessForms[gid].editId || formModals.group[gid])) return;
                     loadSessions();
                     return;
                 }
@@ -1088,11 +1091,20 @@ const app = createApp({
         }
 
         // --- 部屋 ---
+        function openRoomModal() {
+            cancelEditRoom();
+            formModals.room = true;
+        }
+        function closeRoomModal() {
+            formModals.room = false;
+            cancelEditRoom();
+        }
         function cancelEditRoom() {
             Object.assign(roomForm, { editId: null, name: '', capacity: null, floor: 1 });
         }
         function editRoom(r) {
             Object.assign(roomForm, { editId: r.id, name: r.name, capacity: r.capacity, floor: r.floor });
+            formModals.room = true;
         }
         async function submitRoom() {
             if (!roomForm.name) { alert('未入力の項目があります: 部屋名'); return; }
@@ -1112,6 +1124,7 @@ const app = createApp({
             }
             if (!res.ok) { alert('部屋の保存に失敗しました'); return; }
             cancelEditRoom();
+            formModals.room = false;
             await loadRooms();
         }
         async function deleteRoom(id) {
@@ -1126,6 +1139,14 @@ const app = createApp({
         }
 
         // --- 会場地図 ---
+        function openVenueMapModal() {
+            cancelEditVenueMap();
+            formModals.venueMap = true;
+        }
+        function closeVenueMapModal() {
+            formModals.venueMap = false;
+            cancelEditVenueMap();
+        }
         function onVenueMapChange(e) {
             const file = e.target.files[0];
             venueMapPreview.value = file ? URL.createObjectURL(file) : '';
@@ -1139,6 +1160,7 @@ const app = createApp({
             Object.assign(venueMapForm, { editId: m.id, title: m.title, order: m.order, currentImage: m.image });
             venueMapPreview.value = '';
             if (venueMapInput.value) venueMapInput.value.value = '';
+            formModals.venueMap = true;
         }
         async function submitVenueMap() {
             const fd = new FormData();
@@ -1153,6 +1175,7 @@ const app = createApp({
             }
             if (!res.ok) { alert('会場地図の保存に失敗しました'); return; }
             cancelEditVenueMap();
+            formModals.venueMap = false;
             await loadVenueMaps();
         }
         async function deleteVenueMap(id) {
@@ -1410,7 +1433,16 @@ const app = createApp({
                 }
             }
             cancelEditStaff();
+            formModals.staff = false;
             await loadStaffs();
+        }
+        function openStaffModal() {
+            cancelEditStaff();
+            formModals.staff = true;
+        }
+        function closeStaffModal() {
+            formModals.staff = false;
+            cancelEditStaff();
         }
         function editStaff(s) {
             staffForm.editId = s.id;
@@ -1423,6 +1455,7 @@ const app = createApp({
             staffForm.currentPhoto = s.photo || '';
             newStaffPhotoFile.value = null;
             staffPhotoPreview.value = '';
+            formModals.staff = true;
         }
         function cancelEditStaff() {
             Object.assign(staffForm, { editId: null, name: '', slack_name: '', emergency_contact: '', role: [], experience_count: 0, english_ok: false, currentPhoto: '' });
@@ -1906,6 +1939,14 @@ const app = createApp({
             }
             return list;
         }
+        function openGroupSessModal(gid) {
+            cancelEditGroupSession(gid);
+            formModals.group[gid] = true;
+        }
+        function closeGroupSessModal(gid) {
+            formModals.group[gid] = false;
+            cancelEditGroupSession(gid);
+        }
         function cancelEditGroupSession(gid) {
             Object.assign(groupSessForms[gid], {
                 editId: null, title: '', speaker: '', speaker_kana: '', start_time: '', end_time: '',
@@ -1940,6 +1981,7 @@ const app = createApp({
                     is_representative: t.is_representative || 0
                 }));
             }
+            formModals.group[gid] = true;
         }
         function onGroupPhotoChange(gid, event) {
             const file = event.target.files[0];
@@ -1987,6 +2029,7 @@ const app = createApp({
                 await _saveLtTalks(sessionId, talks);
             }
             cancelEditGroupSession(gid);
+            formModals.group[gid] = false;
             await loadSessions(); await loadSchedule();
         }
         async function deleteGroupSession(gid, id) {
@@ -2099,6 +2142,14 @@ const app = createApp({
         // ====================================================================
         //  動的カテゴリ管理（受付案内・懇親会など共通）
         // ====================================================================
+        function openCategoryModal(catKey) {
+            cancelEditCategory(catKey);
+            formModals.category[catKey] = true;
+        }
+        function closeCategoryModal(catKey) {
+            formModals.category[catKey] = false;
+            cancelEditCategory(catKey);
+        }
         function cancelEditCategory(catKey) {
             Object.assign(categoryForms[catKey], {
                 editId: null, title: '', start_time: '', end_time: '',
@@ -2113,6 +2164,7 @@ const app = createApp({
                 room_id: s.room_id, required_staff: s.required_staff,
                 english_required: !!s.english_required, notes: s.notes || ''
             });
+            formModals.category[catKey] = true;
         }
         async function submitCategory(catKey) {
             const form = categoryForms[catKey];
@@ -2142,6 +2194,7 @@ const app = createApp({
             const sessionId = await _saveSession(fd, form.editId);
             if (!sessionId) return;
             cancelEditCategory(catKey);
+            formModals.category[catKey] = false;
             await loadSessions(); await loadSchedule();
         }
         async function deleteCategory(catKey, id) {
@@ -2921,6 +2974,14 @@ const app = createApp({
         function cancelAllOverall() {
             Object.assign(allOvForm, { editId: null, title: '', start_time: '', end_time: '', notes: '' });
         }
+        function openAllOvModal() {
+            cancelAllOverall();
+            formModals.allOverall = true;
+        }
+        function closeAllOvModal() {
+            formModals.allOverall = false;
+            cancelAllOverall();
+        }
         async function submitAllOverall() {
             const fd = new FormData();
             fd.append('title', allOvForm.title);
@@ -2938,6 +2999,7 @@ const app = createApp({
             const sessionId = await _saveSession(fd, allOvForm.editId);
             if (!sessionId) return;
             cancelAllOverall();
+            formModals.allOverall = false;
             await loadSessions(); await loadSchedule();
         }
 
@@ -2950,6 +3012,7 @@ const app = createApp({
                     start_time: toLocalInput(s.start_time), end_time: toLocalInput(s.end_time),
                     notes: s.notes || ''
                 });
+                formModals.allOverall = true;
             }
         }
         async function deleteAllEntry(id, category) {
@@ -3143,8 +3206,9 @@ const app = createApp({
             roomForm, sessForm, staffForm, roleDropdownOpen, prefForms, availForms, ltTalks,
             venueMaps, venueMapForm, venueMapPreview, venueMapInput, mapModal,
             switchTab, catLabel, fmt, fmtShort, sortedPrefs, autoSetEndTime,
-            cancelEditRoom, editRoom, submitRoom, deleteRoom,
-            onVenueMapChange, cancelEditVenueMap, editVenueMap, submitVenueMap, deleteVenueMap,
+            formModals,
+            cancelEditRoom, editRoom, submitRoom, deleteRoom, openRoomModal, closeRoomModal,
+            onVenueMapChange, cancelEditVenueMap, editVenueMap, submitVenueMap, deleteVenueMap, openVenueMapModal, closeVenueMapModal,
             sessDetailSession, sessDetailEntry, sessDetailLocked, toggleSessionDetail, toggleSessDetailLock,
             gridMenu, showGridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
             isMultiSpeakerCat,
@@ -3154,12 +3218,14 @@ const app = createApp({
             newStaffPrefs, newPrefForm, addNewStaffPref, sessionTitle, sessionLabel,
             staffAssignCount, editingStaffPrefs, editingStaffAvails,
             submitStaff, editStaff, cancelEditStaff, deleteStaff, uploadStaffPhoto, deleteStaffPhoto, onNewStaffPhoto, clearNewStaffPhoto, staffPhotoPreview, addPref, removePref, addAvail, removeAvail,
+            openStaffModal, closeStaffModal,
             sessionSchedule,
             // セッショングループ
             sessionGroups, groupLocks, groupSessForms, groupStaffFilters, groupScheduleMsgs, groupSelectedSessions,
             grpDateTabs, grpDates, grpDateFiltered,
             groupSchedule, filteredGroupSchedule, filteredGroupSessions, groupSessionOpacity, groupSessions,
             cancelEditGroupSession, editGroupSession, submitGroupSession, deleteGroupSession, onGroupPhotoChange,
+            openGroupSessModal, closeGroupSessModal,
             autoAssignGroup, autoAssignGroupSelected, autoAssignGroupFill, clearGroupAssignments,
             toggleGroupSessionSelect, toggleGroupSelectAll,
             grpGridConfig, grpGridRooms, grpGridStyle, grpGridLabels, grpSessionStyle, grpDragSessionStyle, onGrpDragStart, grpSelectedSession, grpSelectedEntry,
@@ -3167,6 +3233,7 @@ const app = createApp({
             categories, dynamicCatKeys, categoryLocks, categoryForms, categoryAssignMsgs, categoryStaffFilters,
             categorySessions, catDates, catKeyDates, catGroupTabs, catGroupFiltered, catTimelineByGroup, filteredCategorySessions, catSessionOpacity,
             cancelEditCategory, editCategory, submitCategory, deleteCategory, autoAssignCategory, clearCategoryAssignments,
+            openCategoryModal, closeCategoryModal,
             catSelectedSessions, autoAssignCategorySelected, autoAssignCategoryFill, toggleCatSessionSelect, toggleCatSelectAll,
             catGridConfig, catGridRooms, catGridStyle, catGridLabels, catSessionStyle, catDragSessionStyle, onCatDragStart, catSelectedSession, catSelectedEntry,
             roleOptions,
@@ -3198,7 +3265,7 @@ const app = createApp({
             ovManageFiltered, ovManageGridStyle, ovManageGridRooms, ovManageGridLabels, ovManageSessionStyle, ovManageDragSessionStyle, onOvManageDragStart,
             allGroupTab, allStaffFilter, allSchedule, allTimelineByGroup, allConfig, allColumns, allGridStyle, allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
             allSelectedSession, allSelectedEntry, allAssignMsg,
-            allOvForm, cancelAllOverall, submitAllOverall,
+            allOvForm, cancelAllOverall, submitAllOverall, openAllOvModal, closeAllOvModal,
             editAllEntry, deleteAllEntry, autoAssignAll,
             filteredMatrixSchedule,
             matrixSessionOpacity, _hasStaff, CAT_BG,
