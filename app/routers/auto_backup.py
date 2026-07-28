@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 from ..config import BACKUP_DIR
 from ..database import get_db
 from ..models import AppSetting
-from ..scheduler import scheduler_state, run_backup, recalc_next_run, _read_metadata, _write_metadata
+from ..scheduler import (
+    backup_lock, run_backup, recalc_next_run, read_shared_state,
+    _read_metadata, _write_metadata,
+)
 
 router = APIRouter(prefix="/api/backup/auto", tags=["auto-backup"])
 
@@ -76,13 +79,17 @@ def trigger_backup_now():
 @router.get("/status")
 def get_backup_status(db: Session = Depends(get_db)):
     enabled = _get(db, "autobackup_enabled", "0") == "1"
+    # スケジューラを回しているのはリーダーの worker だけ。このリクエストが
+    # どの worker に届くかは分からないので、共有された状態を読む。
+    state = read_shared_state()
+    last_result = state.get("last_result") or {}
     return {
         "enabled": enabled,
-        "running": scheduler_state.get("running", False),
-        "last_run": scheduler_state.get("last_result", {}).get("created_at") if scheduler_state.get("last_result") else None,
-        "last_status": scheduler_state.get("last_result", {}).get("status") if scheduler_state.get("last_result") else None,
-        "next_run": scheduler_state.get("next_run"),
-        "error": scheduler_state.get("error"),
+        "running": state.get("running", False),
+        "last_run": last_result.get("created_at"),
+        "last_status": last_result.get("status"),
+        "next_run": state.get("next_run"),
+        "error": state.get("error"),
     }
 
 
@@ -108,13 +115,16 @@ def download_backup(backup_id: str):
 
 @router.delete("/history/{backup_id}")
 def delete_backup(backup_id: str):
-    metadata = _read_metadata()
-    entry = next((e for e in metadata if e["id"] == backup_id), None)
-    if not entry:
-        return JSONResponse(status_code=404, content={"detail": "バックアップが見つかりません"})
-    filepath = BACKUP_DIR / entry["filename"]
-    if filepath.exists():
-        filepath.unlink()
-    metadata = [e for e in metadata if e["id"] != backup_id]
-    _write_metadata(metadata)
+    # metadata.json の read-modify-write。バックアップ実行側も同じファイルを
+    # 書き換えるので、同じロックで直列化しないと片方の更新が消える。
+    with backup_lock:
+        metadata = _read_metadata()
+        entry = next((e for e in metadata if e["id"] == backup_id), None)
+        if not entry:
+            return JSONResponse(status_code=404, content={"detail": "バックアップが見つかりません"})
+        filepath = BACKUP_DIR / entry["filename"]
+        if filepath.exists():
+            filepath.unlink()
+        metadata = [e for e in metadata if e["id"] != backup_id]
+        _write_metadata(metadata)
     return {"status": "ok"}

@@ -38,13 +38,28 @@ PUBLIC_PATHS = {"/auth/login", "/auth/verify", "/auth/logout", "/auth/debug", "/
 # ---------------------------------------------------------------------------
 # Setup completion check (cached)
 # ---------------------------------------------------------------------------
-_setup_done: bool | None = None
+_setup_done: bool = False
+_setup_checked_at: float = 0.0
+# 未完了と判断している間だけ、この間隔で DB を見直す。
+# gunicorn を複数 worker で動かすため、セットアップを完了させたリクエストを
+# 処理した worker 以外は「まだ未完了」と思い込んだままになる。それを自力で
+# 直せるようにするためのポーリング間隔。
+_SETUP_RECHECK_SECONDS = 5.0
 
 
 def is_setup_complete() -> bool:
-    global _setup_done
-    if _setup_done is not None:
-        return _setup_done
+    """セットアップ済みかを返す (完了したら以後は DB を見ない)。
+
+    完了状態は一度 True になったら False に戻らないので、True はそのまま
+    キャッシュしてよい。False の間だけ再確認する。
+    """
+    global _setup_done, _setup_checked_at
+    if _setup_done:
+        return True
+    now = time.time()
+    if now - _setup_checked_at < _SETUP_RECHECK_SECONDS:
+        return False
+
     from .database import SessionLocal
     from .models import AppSetting
     db = SessionLocal()
@@ -53,6 +68,7 @@ def is_setup_complete() -> bool:
         _setup_done = (row is not None and row.value == "1")
     finally:
         db.close()
+    _setup_checked_at = now
     return _setup_done
 
 

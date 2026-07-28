@@ -35,7 +35,12 @@ variable "always_on" {
 variable "app_command_line" {
   description = "スタートアップコマンド"
   type        = string
-  default     = "gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:8000"
+
+  # worker 数は -w で固定せず、gunicorn が既定で参照する WEB_CONCURRENCY に任せる。
+  # アプリ側 (app/security.py の worker_count) も同じ環境変数を見て
+  # レート制限を頭割りするため、二箇所に別々の数字が書かれる状態を避ける。
+  # WEB_CONCURRENCY は make sync-settings で反映する。
+  default = "gunicorn -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:8000"
 }
 
 variable "app_settings" {

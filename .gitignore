@@ -7,10 +7,12 @@ uploads/
 node_modules/
 frontend/dist/
 
-# デプロイ設定 (本番のシークレットを含む。コミット厳禁)
+# デプロイ設定 (シークレットを含む。コミット厳禁)
+# 環境ごとに .env.prod / .env.staging を置くため、個別列挙ではなくパターンで弾く。
+# (列挙だと新しい環境を足したときに漏れる)
 .env
-.env.prod
-!.env.prod.example
+.env.*
+!.env.*.example
 
 # make deploy の中間生成物
 .deploy/

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
-from ..utils import save_upload
+from ..utils import read_upload, store_upload, remove_upload
 from ..models import Staff, StaffSkill, StaffPreferredSession, StaffAvailability
 from ..models import Session as SessionModel
 from ..schemas import (
@@ -80,12 +80,23 @@ def update_staff(staff_id: int, data: StaffUpdate, db: Session = Depends(get_db)
 @router.post("/{staff_id}/photo", response_model=StaffResponse)
 async def upload_staff_photo(staff_id: int, photo: UploadFile = File(...), db: Session = Depends(get_db)):
     """スタッフの顔写真をアップロード"""
+    # DB に触る前にアップロードを読み切り、新ファイルを書いておく。
+    content, ext = await read_upload(photo)
+    new_photo = store_upload(content, ext, prefix="staff_")
+
     staff = db.query(Staff).filter(Staff.id == staff_id).first()
     if not staff:
+        remove_upload(new_photo)
         raise HTTPException(status_code=404, detail="Staff not found")
-    staff.photo = await save_upload(photo, staff.photo or "", prefix="staff_")
+    old_photo = staff.photo
+    staff.photo = new_photo
     db.commit()
-    return db.query(Staff).options(*STAFF_EAGER).filter(Staff.id == staff_id).first()
+    result = db.query(Staff).options(*STAFF_EAGER).filter(Staff.id == staff_id).first()
+
+    # 古い画像の削除は DB 更新が確定してから。逆順だと commit 失敗時に
+    # ファイルだけ消えてしまう。
+    remove_upload(old_photo)
+    return result
 
 
 @router.delete("/{staff_id}/photo", status_code=204)
@@ -95,11 +106,10 @@ def delete_staff_photo(staff_id: int, db: Session = Depends(get_db)):
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
     if staff.photo:
-        old_path = Path("." + staff.photo)
-        if old_path.exists():
-            old_path.unlink()
+        old_photo = staff.photo
         staff.photo = ""
         db.commit()
+        remove_upload(old_photo)
 
 
 @router.delete("/{staff_id}", status_code=204)
@@ -107,13 +117,11 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db)):
     staff = db.query(Staff).filter(Staff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
-    # 写真ファイルも削除
-    if staff.photo:
-        photo_path = Path("." + staff.photo)
-        if photo_path.exists():
-            photo_path.unlink()
+    photo = staff.photo
     db.delete(staff)
     db.commit()
+    # 写真ファイルの削除は DB 更新が確定してから
+    remove_upload(photo)
 
 
 # --- Preferred Sessions ---

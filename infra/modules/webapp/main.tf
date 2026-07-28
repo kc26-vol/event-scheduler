@@ -47,7 +47,17 @@ resource "azurerm_linux_web_app" "this" {
       # ために import した state (sensitive マーク無し) との間で値が同一でも
       # 差分が出続け、apply のたびにアプリが再起動してしまう。
       # 再起動は /home のマウント未完了による起動失敗の契機になるため避ける。
-      # (上の app_settings は「あるべき姿」の記述として残している)
+      #
+      # 管理の境界 (ここを混ぜると二重管理になる):
+      #   site_config (app_command_line 等) … Terraform が常に権威
+      #   app_settings                      … 新規作成時のみ Terraform、
+      #                                       以降は make sync-settings が唯一の手段
+      #
+      # ignore_changes が効くのは「更新」だけで、新規作成には効かない
+      # (prior state が無いので config の値がそのまま使われる)。
+      # つまり上の app_settings は死んだ記述ではなく、環境を作り直したときの
+      # 初期値として実際に使われる。逆に、作成済みの環境で値を書き換えて
+      # apply しても何も起きない。行を消しても設定は消えない。
       app_settings,
       # 実サーバ側は未設定(空)だが provider の既定値は "Allow"。
       # 意味は同じ(制限なし)ため、無用な書き込みを避けて現状維持する。

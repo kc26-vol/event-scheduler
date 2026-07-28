@@ -6,12 +6,36 @@ Bot / abuse protection utilities.
 - Security headers middleware
 """
 
+import os
 import time
 from collections import defaultdict
+
+
+def worker_count() -> int:
+    """gunicorn の worker 数。按分の分母に使う。
+
+    レート制限もログイン失敗の記録もプロセス内メモリで持っているため、
+    worker が N プロセスあると実効的な上限が N 倍に緩む。とくにログインの
+    ブルートフォース防御が N 倍の試行を許してしまうので、閾値を割っておく。
+
+    値は gunicorn が worker 数を決めるのと同じ WEB_CONCURRENCY から読む
+    (起動コマンドで -w を指定せず、この環境変数に一本化している)。
+    """
+    try:
+        return max(int(os.environ.get("WEB_CONCURRENCY", "1")), 1)
+    except ValueError:
+        return 1
+
+
+def _per_worker(total: int) -> int:
+    """全体の上限を1 worker あたりに割り当てる (最低1)。"""
+    return max(total // worker_count(), 1)
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+
+from . import loginguard
 
 
 # ---------------------------------------------------------------------------
@@ -32,16 +56,22 @@ class RateLimiter:
     def __init__(self):
         # path_prefix -> {ip -> _RateBucket}
         self._buckets: dict[str, dict[str, _RateBucket]] = defaultdict(dict)
-        # path_prefix -> (max_requests, window_seconds)
-        self._rules: list[tuple[str, int, int]] = []
+        # path_prefix -> (max_requests, window_seconds, exclude_prefixes)
+        self._rules: list[tuple[str, int, int, tuple[str, ...]]] = []
 
-    def add_rule(self, path_prefix: str, max_requests: int, window_seconds: int):
-        self._rules.append((path_prefix, max_requests, window_seconds))
+    def add_rule(
+        self,
+        path_prefix: str,
+        max_requests: int,
+        window_seconds: int,
+        exclude_prefixes: tuple[str, ...] = (),
+    ):
+        self._rules.append((path_prefix, max_requests, window_seconds, exclude_prefixes))
 
     def is_limited(self, path: str, client_ip: str) -> bool:
         now = time.time()
-        for prefix, max_req, window in self._rules:
-            if not path.startswith(prefix):
+        for prefix, max_req, window, excluded in self._rules:
+            if not path.startswith(prefix) or path.startswith(excluded):
                 continue
             buckets = self._buckets[prefix]
             bucket = buckets.get(client_ip)
@@ -70,49 +100,47 @@ class RateLimiter:
 # Global rate limiter instance
 rate_limiter = RateLimiter()
 
-# Login: 5 attempts per 60 seconds per IP
-rate_limiter.add_rule("/auth/verify", max_requests=5, window_seconds=60)
+# 以下の上限は「アプリ全体で1IPあたり」の値。バケットは worker ごとに
+# 独立しているため、_per_worker で頭割りにしてから登録する。
+#
+# 件数が多いパスなら頭割りで実害はないが、小さい上限では成立しない。
+# ログインの 5回/分 を4 worker で割ると1回/分になり、パスワードを打ち間違えた
+# 利用者がすぐ 429 になってしまう。/auth/verify だけは頭割りをやめ、
+# worker 間で正確に数える (app/loginguard.py)。
 
 # API: 300 requests per 60 seconds per IP
-rate_limiter.add_rule("/api/", max_requests=300, window_seconds=60)
+rate_limiter.add_rule("/api/", max_requests=_per_worker(300), window_seconds=60)
 
 # Public API: 60 requests per 60 seconds per IP
-rate_limiter.add_rule("/public/api/", max_requests=60, window_seconds=60)
+# 画像は1ページの表示で数十枚まとめて取りに来るため、データ系の枠とは分ける。
+# (同じ枠だと、登壇者写真の多いページを2人が同時に開いただけで 429 になる)
+PUBLIC_PHOTO_PREFIX = "/public/api/photo/"
+rate_limiter.add_rule(
+    "/public/api/", max_requests=_per_worker(60), window_seconds=60,
+    exclude_prefixes=(PUBLIC_PHOTO_PREFIX,),
+)
+rate_limiter.add_rule(PUBLIC_PHOTO_PREFIX, max_requests=_per_worker(600), window_seconds=60)
 
 
 # ---------------------------------------------------------------------------
 # Login brute-force lockout
+#
+# 記録の実体は app/loginguard.py (worker 間で共有)。
+# 呼び出し側の名前は変えずに済むよう、ここで薄く包んでいる。
 # ---------------------------------------------------------------------------
-_login_failures: dict[str, list[float]] = defaultdict(list)
-LOGIN_LOCKOUT_THRESHOLD = 10  # failures within window
-LOGIN_LOCKOUT_WINDOW = 300    # 5 minutes
-LOGIN_LOCKOUT_DURATION = 600  # 10 minutes lockout
-
-
 def record_login_failure(client_ip: str):
     """Record a failed login attempt."""
-    _login_failures[client_ip].append(time.time())
+    loginguard.record_failure(client_ip)
 
 
 def is_login_locked(client_ip: str) -> bool:
     """Check if IP is locked out due to too many failures."""
-    now = time.time()
-    attempts = _login_failures.get(client_ip)
-    if not attempts:
-        return False
-    # Keep only recent attempts
-    recent = [t for t in attempts if now - t < LOGIN_LOCKOUT_WINDOW]
-    _login_failures[client_ip] = recent
-    if len(recent) >= LOGIN_LOCKOUT_THRESHOLD:
-        # Check if last failure was within lockout duration
-        if recent and now - recent[-1] < LOGIN_LOCKOUT_DURATION:
-            return True
-    return False
+    return loginguard.is_locked(client_ip)
 
 
 def clear_login_failures(client_ip: str):
     """Clear failure records after successful login."""
-    _login_failures.pop(client_ip, None)
+    loginguard.clear(client_ip)
 
 
 # ---------------------------------------------------------------------------
@@ -150,12 +178,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         client_ip = _get_client_ip(request)
 
-        # Check login lockout
-        if path == "/auth/verify" and is_login_locked(client_ip):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "ログイン試行回数が上限を超えました。しばらくしてから再試行してください。"},
-            )
+        # ログインは worker 間で共有した記録を使う (頭割りだと厳しすぎるため)
+        if path == "/auth/verify":
+            if loginguard.is_locked(client_ip) or loginguard.too_many_attempts(client_ip):
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "ログイン試行回数が上限を超えました。しばらくしてから再試行してください。"},
+                )
 
         # Check rate limit
         if rate_limiter.is_limited(path, client_ip):

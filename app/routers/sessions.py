@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
 from ..models import Session as SessionModel, Room, LTTalk, Assignment, AppSetting
 from ..schemas import SessionResponse, LTTalkCreate, LTTalkResponse
-from ..utils import save_upload
+from ..utils import read_upload, store_upload, remove_upload
 
 
 def _parse_dt(value: str) -> datetime:
@@ -47,14 +47,15 @@ async def create_session(
     speaker_photo: UploadFile | None = File(None),
     db: Session = Depends(get_db),
 ):
-    photo_path = ""
-    if speaker_photo and speaker_photo.filename:
-        photo_path = await save_upload(speaker_photo)
-
     parsed_start = _parse_dt(start_time)
     parsed_end = _parse_dt(end_time)
     if parsed_start >= parsed_end:
         raise HTTPException(status_code=400, detail="開始時刻は終了時刻より前にしてください")
+
+    photo_path = ""
+    if speaker_photo and speaker_photo.filename:
+        content, ext = await read_upload(speaker_photo)
+        photo_path = store_upload(content, ext)
 
     db_session = SessionModel(
         title=title,
@@ -110,14 +111,22 @@ async def update_session(
     speaker_photo: UploadFile | None = File(None),
     db: Session = Depends(get_db),
 ):
-    session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
+    # DB に触らずに済む検証は先に済ませる (ここで弾けば画像を書かずに終われる)
     parsed_start = _parse_dt(start_time)
     parsed_end = _parse_dt(end_time)
     if parsed_start >= parsed_end:
         raise HTTPException(status_code=400, detail="開始時刻は終了時刻より前にしてください")
+
+    # DB に触る前にアップロードを読み切り、新ファイルを書いておく。
+    new_photo = ""
+    if speaker_photo and speaker_photo.filename:
+        content, ext = await read_upload(speaker_photo)
+        new_photo = store_upload(content, ext)
+
+    session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+    if not session:
+        remove_upload(new_photo)
+        raise HTTPException(status_code=404, detail="Session not found")
 
     session.title = title
     session.speaker = speaker
@@ -135,11 +144,14 @@ async def update_session(
     session.english_required = int(english_required)
     session.group_id = group_id
 
-    if speaker_photo and speaker_photo.filename:
-        session.speaker_photo = await save_upload(speaker_photo, session.speaker_photo or "")
+    old_photo = ""
+    if new_photo:
+        old_photo = session.speaker_photo
+        session.speaker_photo = new_photo
 
     db.commit()
     db.refresh(session, ["room", "lt_talks"])
+    remove_upload(old_photo)
     return session
 
 
@@ -214,13 +226,11 @@ def delete_session(session_id: int, db: Session = Depends(get_db)):
     session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    # 写真ファイルも削除
-    if session.speaker_photo:
-        photo_path = Path("." + session.speaker_photo)
-        if photo_path.exists():
-            photo_path.unlink()
+    photo = session.speaker_photo
     db.delete(session)
     db.commit()
+    # 写真ファイルの削除は DB 更新が確定してから
+    remove_upload(photo)
 
 
 @router.post("/calc-required-staff")
@@ -318,10 +328,17 @@ def update_lt_talks(session_id: int, talks: list[LTTalkCreate], db: Session = De
 @router.post("/{session_id}/lt-talks/{talk_id}/photo", response_model=LTTalkResponse)
 async def upload_lt_talk_photo(session_id: int, talk_id: int, photo: UploadFile = File(...), db: Session = Depends(get_db)):
     """LT登壇者の写真をアップロード"""
+    # DB に触る前にアップロードを読み切り、新ファイルを書いておく。
+    content, ext = await read_upload(photo)
+    new_photo = store_upload(content, ext, prefix="lt_")
+
     talk = db.query(LTTalk).filter(LTTalk.id == talk_id, LTTalk.session_id == session_id).first()
     if not talk:
+        remove_upload(new_photo)
         raise HTTPException(status_code=404, detail="LT Talk not found")
-    talk.speaker_photo = await save_upload(photo, talk.speaker_photo or "", prefix="lt_")
+    old_photo = talk.speaker_photo
+    talk.speaker_photo = new_photo
     db.commit()
     db.refresh(talk)
+    remove_upload(old_photo)
     return talk
