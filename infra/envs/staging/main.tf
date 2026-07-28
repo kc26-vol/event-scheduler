@@ -32,6 +32,10 @@ module "app" {
   https_only = true
   always_on  = false
 
+  # 注意: ここは「あるべき姿」の記述であって、apply しても反映されない。
+  # モジュール側で app_settings ごと ignore_changes にしている
+  # (理由は infra/modules/webapp/main.tf のコメント)。
+  # 実際に反映するのは make sync-settings。値を変えたらそちらも実行すること。
   app_settings = {
     APP_PASSWORD                   = var.app_password
     SESSION_SECRET                 = var.session_secret

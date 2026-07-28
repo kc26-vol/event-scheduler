@@ -288,3 +288,74 @@ def test_バックアップ履歴の同時更新で件数が失われない(data
     entries = json.loads((Path(data_dir) / "backups" / "metadata.json").read_text())
     assert len(entries) == n_proc * per_proc, "更新が上書きで消えている"
     assert len({e["id"] for e in entries}) == n_proc * per_proc
+
+
+# ---------------------------------------------------------------------------
+# ログイン試行の記録 (worker 間で共有)
+# ---------------------------------------------------------------------------
+def _child_login_attempts(args):
+    """n 回ログインを試行し、429 相当と判定された回数を返す。"""
+    data_dir, n = args
+    _bootstrap(data_dir)
+    from app import loginguard
+
+    return sum(loginguard.too_many_attempts("1.2.3.4") for _ in range(n))
+
+
+def _child_login_failures(args):
+    """n 回失敗を記録し、最後にロックアウト状態かを返す。"""
+    data_dir, n = args
+    _bootstrap(data_dir)
+    from app import loginguard
+
+    for _ in range(n):
+        loginguard.record_failure("5.6.7.8")
+    return loginguard.is_locked("5.6.7.8")
+
+
+def test_ログイン試行の上限はworker数に関係なく一定(data_dir, pool):
+    """worker ごとのメモリで数えると上限が worker 数倍に緩む。
+
+    4プロセスで合計12回試行したら、上限5回を超えた7回が弾かれること。
+    (頭割り方式だと逆に厳しくなりすぎ、正規利用者が締め出される)
+    """
+    n_proc, per_proc = 4, 3
+    blocked = sum(pool.map(_child_login_attempts, [(data_dir, per_proc)] * n_proc))
+    total = n_proc * per_proc
+    from app.loginguard import ATTEMPT_LIMIT
+
+    assert blocked == total - ATTEMPT_LIMIT, (
+        f"{total}回中 {blocked}回 が弾かれた (期待 {total - ATTEMPT_LIMIT}回)"
+    )
+
+
+def test_ログイン失敗の記録がworkerをまたいで積算される(data_dir, pool):
+    """1プロセスあたり3回でも、4プロセス合わせて閾値10回を超えたらロックされる。"""
+    from app.loginguard import LOCKOUT_THRESHOLD
+
+    results = pool.map(_child_login_failures, [(data_dir, 3)] * 4)
+    assert 3 * 4 > LOCKOUT_THRESHOLD, "テストの前提 (合計が閾値を超える) が崩れている"
+    assert any(results), "worker をまたいだ失敗が積算されていない"
+
+
+def _child_login_success_then_limit(data_dir):
+    """成功が続いても試行回数の上限は効き続けるか。"""
+    _bootstrap(data_dir)
+    from app import loginguard
+
+    blocked = []
+    for _ in range(8):
+        limited = loginguard.too_many_attempts("9.9.9.9")
+        if not limited:
+            loginguard.clear("9.9.9.9")  # ログイン成功時の処理
+        blocked.append(limited)
+    return blocked
+
+
+def test_ログイン成功しても試行回数はリセットされない(data_dir, pool):
+    """成功でリセットされると、正解と不正解を交互に送るだけで上限を回避できてしまう。"""
+    from app.loginguard import ATTEMPT_LIMIT
+
+    blocked = pool.apply(_child_login_success_then_limit, (data_dir,))
+    assert blocked[:ATTEMPT_LIMIT] == [False] * ATTEMPT_LIMIT, "上限内なのに弾かれた"
+    assert all(blocked[ATTEMPT_LIMIT:]), "上限を超えたのに素通りしている"

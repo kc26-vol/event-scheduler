@@ -8,17 +8,21 @@ SQLite が面倒を見てくれない、ファイル単位の read-modify-write 
   CREATE TABLE や初期データ投入の「確認してから書く」を worker 間で不可分にする。
 - バックアップの実行と backups/metadata.json の更新 (app/scheduler.py)
 - スケジューラのリーダー選出 (try_acquire_leadership)
+- ログイン試行の記録 (app/loginguard.py)
 
 DB そのものの排他には**使っていない**。理由は app/database.py のコメントを参照。
 
-使ってよい場所の制約
---------------------
-**イベントループ上で acquire しないこと。** ここで待つとイベントループが止まり、
-threadpool 側の後片付け (Session の close など) がスケジュールされなくなって
-デッドロックする。使ってよいのは、
+守るべき不変条件
+----------------
+**ロックを持っている間に、イベントループの再開を待つ処理を挟まないこと。**
 
-- import 時 (イベントループが動く前)
-- `def` エンドポイントや run_in_executor の中 (threadpool 上)
+挟むとデッドロックする。DB のセッションがこれに当たった: threadpool 側が
+ロックを持ったまま `Depends(get_db)` の後片付け (イベントループ経由) を待ち、
+その間にイベントループ側が同じロックを待って止まり、互いに進めなくなった。
+
+逆に、ロックの中が「ファイルを読んで書くだけ」のような短い同期処理で閉じて
+いれば、イベントループ上から取っても安全 (loginguard がこれ)。
+判断の軸はスレッドの種類ではなく、**ロック区間が自己完結しているか**。
 
 どこにロックファイルを置くか
 --------------------------
@@ -40,11 +44,14 @@ import threading
 from pathlib import Path
 
 
-def _lock_dir() -> Path:
+def lock_dir() -> Path:
     """ロックファイルを置くローカルディスク上のディレクトリ。
 
     DATA_DIR ごとに分ける。テストが一時ディレクトリを使うので、
     同じホストで並行して走っても互いに干渉しない。
+
+    worker 間で共有したい小さな状態ファイル (app/loginguard.py) も
+    ここに置く。ローカルディスクなので読み書きのコストが無視できる。
     """
     key = hashlib.sha256(str(os.environ.get("DATA_DIR", ".")).encode()).hexdigest()[:12]
     d = Path(tempfile.gettempdir()) / f"event-scheduler-{key}"
@@ -66,7 +73,7 @@ class ProcessLock:
 
     def __init__(self, name: str):
         self.name = name
-        self._path = _lock_dir() / f"{name}.lock"
+        self._path = lock_dir() / f"{name}.lock"
         self._guard = threading.RLock()
         self._depth = 0
         self._owner: int | None = None
@@ -150,7 +157,7 @@ def try_acquire_leadership(name: str) -> "LeaderLock | None":
 
     プロセスが死ねば OS が flock を解放するので、他の worker が引き継げる。
     """
-    path = _lock_dir() / f"{name}.leader"
+    path = lock_dir() / f"{name}.leader"
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -41,5 +41,5 @@ variable "timezone" {
 variable "web_concurrency" {
   description = "gunicorn の worker プロセス数 (WEB_CONCURRENCY)。B3 は 4 vCPU。"
   type        = string
-  default     = "3"
+  default     = "4"
 }

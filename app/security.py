@@ -35,6 +35,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from . import loginguard
+
 
 # ---------------------------------------------------------------------------
 # Rate limiter (in-memory, per-IP)
@@ -100,9 +102,11 @@ rate_limiter = RateLimiter()
 
 # 以下の上限は「アプリ全体で1IPあたり」の値。バケットは worker ごとに
 # 独立しているため、_per_worker で頭割りにしてから登録する。
-
-# Login: 5 attempts per 60 seconds per IP
-rate_limiter.add_rule("/auth/verify", max_requests=_per_worker(5), window_seconds=60)
+#
+# 件数が多いパスなら頭割りで実害はないが、小さい上限では成立しない。
+# ログインの 5回/分 を4 worker で割ると1回/分になり、パスワードを打ち間違えた
+# 利用者がすぐ 429 になってしまう。/auth/verify だけは頭割りをやめ、
+# worker 間で正確に数える (app/loginguard.py)。
 
 # API: 300 requests per 60 seconds per IP
 rate_limiter.add_rule("/api/", max_requests=_per_worker(300), window_seconds=60)
@@ -120,38 +124,23 @@ rate_limiter.add_rule(PUBLIC_PHOTO_PREFIX, max_requests=_per_worker(600), window
 
 # ---------------------------------------------------------------------------
 # Login brute-force lockout
+#
+# 記録の実体は app/loginguard.py (worker 間で共有)。
+# 呼び出し側の名前は変えずに済むよう、ここで薄く包んでいる。
 # ---------------------------------------------------------------------------
-_login_failures: dict[str, list[float]] = defaultdict(list)
-# アプリ全体で10回。失敗記録も worker ごとなので頭割りにする。
-LOGIN_LOCKOUT_THRESHOLD = _per_worker(10)  # failures within window
-LOGIN_LOCKOUT_WINDOW = 300    # 5 minutes
-LOGIN_LOCKOUT_DURATION = 600  # 10 minutes lockout
-
-
 def record_login_failure(client_ip: str):
     """Record a failed login attempt."""
-    _login_failures[client_ip].append(time.time())
+    loginguard.record_failure(client_ip)
 
 
 def is_login_locked(client_ip: str) -> bool:
     """Check if IP is locked out due to too many failures."""
-    now = time.time()
-    attempts = _login_failures.get(client_ip)
-    if not attempts:
-        return False
-    # Keep only recent attempts
-    recent = [t for t in attempts if now - t < LOGIN_LOCKOUT_WINDOW]
-    _login_failures[client_ip] = recent
-    if len(recent) >= LOGIN_LOCKOUT_THRESHOLD:
-        # Check if last failure was within lockout duration
-        if recent and now - recent[-1] < LOGIN_LOCKOUT_DURATION:
-            return True
-    return False
+    return loginguard.is_locked(client_ip)
 
 
 def clear_login_failures(client_ip: str):
     """Clear failure records after successful login."""
-    _login_failures.pop(client_ip, None)
+    loginguard.clear(client_ip)
 
 
 # ---------------------------------------------------------------------------
@@ -189,12 +178,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         client_ip = _get_client_ip(request)
 
-        # Check login lockout
-        if path == "/auth/verify" and is_login_locked(client_ip):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "ログイン試行回数が上限を超えました。しばらくしてから再試行してください。"},
-            )
+        # ログインは worker 間で共有した記録を使う (頭割りだと厳しすぎるため)
+        if path == "/auth/verify":
+            if loginguard.is_locked(client_ip) or loginguard.too_many_attempts(client_ip):
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "ログイン試行回数が上限を超えました。しばらくしてから再試行してください。"},
+                )
 
         # Check rate limit
         if rate_limiter.is_limited(path, client_ip):
