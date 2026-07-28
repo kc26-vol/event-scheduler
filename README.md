@@ -132,30 +132,76 @@ Vite dev server が `/api`, `/auth`, `/uploads`, `/public` をバックエンド
 | `APP_PASSWORD` | ログインパスワード | `password` |
 | `SESSION_SECRET` | Cookie署名キー | (ランダム生成) |
 | `RESET_PASSWORD` | 管理者パスワード | `password` |
-| `DATA_DIR` | SQLiteファイル保存先 | `./data` |
+| `DATA_DIR` | DB・アップロード・バックアップの保存先 | `.` (DBは `./scheduler.db`) |
+| `ALLOW_EMPTY_DATA_DIR` | 空の `DATA_DIR` を許可 (`1`で有効) | 無効 |
 | `TZ` | タイムゾーン | `Asia/Tokyo` |
 | `GEOIP_ENABLED` | GeoIP制限 (`1`で有効) | 無効 |
 | `IPINFO_TOKEN` | ipinfo.ioトークン | (なし) |
 
-## デプロイ例
+`DATA_DIR` を設定すると、起動時にそのディレクトリが実在する永続ボリュームかを
+検証します (未マウントのまま空のDBを作る事故を防ぐため)。詳細は
+[データを失わないための前提](#データを失わないための前提) を参照してください。
+`ALLOW_EMPTY_DATA_DIR` は初回デプロイ時のみ使う一時的な例外です。
 
-デプロイ前にフロントエンドのビルド (`cd frontend && pnpm install && pnpm build`) を行い、
-`frontend/dist` をデプロイ物に含めてください。バックエンドは `frontend/dist` を静的配信します
-(見つからない場合は `frontend/public` のみ配信され、アプリ本体は表示されません)。
+## デプロイ
 
-> **uv 移行PR (#3) との関係について**: Azure (Oryx) の Python ビルドは `requirements.txt` を前提とします。
-> uv 移行PR (kc26-vol/event-scheduler#3) で `requirements.txt` が廃止される場合は、CI で
-> `uv export --format requirements-txt` などにより `requirements.txt` を生成してからデプロイするか、
-> 両PRのマージ後にデプロイ手順の整合を取ってください
-> ([.github/workflows/deploy.yml](.github/workflows/deploy.yml) に生成ステップのコメント例があります)。
+Azure Web Apps へのデプロイは `make deploy` に集約されています。
 
-### Azure Web Apps
+```bash
+make deploy
+```
 
-#### 方法1: GitHub Actions
+**バックアップ取得 → `DATA_DIR` 検証 → ビルド → デプロイ → データ件数検証** を
+この順に必ず通し、途中で失敗した時点で中断します
+(バックアップが取れなければデプロイまで到達しません)。
 
-mainブランチへのpush時に自動デプロイされます。
+接続先と本番の環境変数は `.env.prod` から読み込みます。初回のみ用意してください
+(`.env.prod` は `.gitignore` 済みです。本番のシークレットを含むためコミットしないこと)。
 
-##### 初回セットアップ
+```bash
+cp .env.prod.example .env.prod
+chmod 600 .env.prod
+$EDITOR .env.prod   # AZURE_WEBAPP_NAME・APP_PASSWORD などを埋める
+```
+
+### コマンド一覧
+
+`make` または `make help` で一覧が出ます。
+
+| コマンド | 内容 |
+|---|---|
+| `make deploy` | バックアップ→デプロイ→検証。通常はこれを使う |
+| `make backup` | 本番データを `backups/` へ取得 (アプリのバックアップAPI経由) |
+| `make check-data-dir` | 本番の `DATA_DIR` が永続領域を指しているか検証 |
+| `make verify` | 起動確認とデータ件数の検証 |
+| `make sync-settings` | `.env.prod` のアプリ設定を Azure へ反映 (明示実行のみ) |
+| `make build` | フロントエンドのビルド |
+| `make test` | バックエンドのテスト |
+| `make logs` | 実行中のログを表示 |
+
+`make deploy` はアプリ設定 (環境変数) を変更しません。変更したいときだけ
+`make sync-settings` を実行します (確認プロンプトあり)。指定キーのみ更新し、
+既存の他キーは削除しません。
+
+### データを失わないための前提
+
+**zip デプロイは `wwwroot` を丸ごと置き換えます。** そのため実データは必ず
+`wwwroot` の外に置く必要があります。
+
+- `DATA_DIR=/home/data` を設定する (`/home` は再起動・デプロイをまたいで保全される永続領域)
+- DB・アップロード画像・バックアップはすべて `DATA_DIR` 配下に作られる
+- `make check-data-dir` が、未設定や `wwwroot` 配下を検出してデプロイを中断する
+
+また `/home` は Azure Files (SMB) のネットワーク共有で、**コンテナ起動直後は
+マウントが完了していないことがあります**。その状態で起動すると「DBがまだ無い」と
+誤認して空のDBを作ってしまうため、`DATA_DIR` を設定している場合は起動時に
+ボリュームの実在を検証します (`app/storage_guard.py`)。確認できなければ
+空のDBを作らずに起動を中止し、コンテナの再起動に任せます。
+
+ボリュームが空で正当なケース (**初回デプロイ時のみ**) は `ALLOW_EMPTY_DATA_DIR=1` を
+設定して明示的に許可してください。2回目以降は不要です。
+
+### 初回セットアップ
 
 1. **リソース作成**
 
@@ -165,7 +211,7 @@ az group create --name <リソースグループ名> --location japaneast
 az appservice plan create \
   --name <プラン名> \
   --resource-group <リソースグループ名> \
-  --sku F1 --is-linux
+  --sku B3 --is-linux
 
 az webapp create \
   --name <アプリ名> \
@@ -183,7 +229,11 @@ az webapp config set \
   --startup-file "gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:8000"
 ```
 
+SQLite を使うため、ワーカーは 1 のままにしてください。
+
 3. **環境変数設定**
+
+`.env.prod` を用意して `make sync-settings` を実行するか、以下を直接実行します。
 
 ```bash
 az webapp config appsettings set \
@@ -197,44 +247,36 @@ az webapp config appsettings set \
     SCM_DO_BUILD_DURING_DEPLOYMENT="true"
 ```
 
-`DATA_DIR` を `/home/data` に設定すると、デプロイ時にデータが消えません（`/home` は永続ストレージ）。
-
-4. **GitHub Actions設定**
-
-Azureポータルで発行プロファイルをダウンロードし、GitHubリポジトリの Settings > Secrets に `AZURE_WEBAPP_PUBLISH_PROFILE` として登録。
-
-ワークフローファイルは [.github/workflows/deploy.yml](.github/workflows/deploy.yml) を参照してください
-(pnpm のセットアップ → `pnpm install` → `pnpm build` で `frontend/dist` を生成してからデプロイします)。
-`app-name` の `<アプリ名>` を実際の値に書き換えて使います。
-
-#### 方法2: Azure CLI で直接デプロイ
-
-いずれの方法でも、先にローカルでフロントエンドをビルドして `frontend/dist` を生成しておきます
-(Oryx のビルド `SCM_DO_BUILD_DURING_DEPLOYMENT` は Python 依存のインストールのみで、
-Node のビルドは実行されません)。
+4. **初回デプロイ**
 
 ```bash
-# フロントエンドのビルド (必須)
-cd frontend && pnpm install && pnpm build && cd ..
+# 初回はデータ領域が空なので、空ボリュームを明示的に許可する
+az webapp config appsettings set \
+  --name <アプリ名> --resource-group <リソースグループ名> \
+  --settings ALLOW_EMPTY_DATA_DIR="1"
 
-# プロジェクトディレクトリで実行 (frontend/dist もアップロードされる)
-az webapp up \
-  --name <アプリ名> \
-  --resource-group <リソースグループ名> \
-  --runtime "PYTHON|3.11" \
-  --sku F1
+make deploy
+
+# 起動を確認したら外す (以降は空ボリューム = 異常として扱わせる)
+az webapp config appsettings delete \
+  --name <アプリ名> --resource-group <リソースグループ名> \
+  --setting-names ALLOW_EMPTY_DATA_DIR
 ```
 
-または ZIP デプロイ:
+### Makefile を使わずにデプロイする場合
+
+`SCM_DO_BUILD_DURING_DEPLOYMENT` による Oryx のビルドは Python 依存のインストールのみで、
+Node のビルドは実行されません。**先にローカルでフロントエンドをビルドし、
+`frontend/dist` をデプロイ物に含めてください** (無いと `frontend/public` のみが配信され、
+アプリ本体が表示されません)。
 
 ```bash
-# フロントエンドのビルド (必須)
 cd frontend && pnpm install && pnpm build && cd ..
 
-# プロジェクトをZIPに圧縮 (frontend/dist を含める)
-zip -r deploy.zip . -x ".git/*" "data/*" "__pycache__/*" "*.pyc" "frontend/node_modules/*"
+zip -r deploy.zip . \
+  -x ".git/*" ".venv/*" "*/node_modules/*" "*__pycache__/*" "*.pyc" \
+     "data/*" "backups/*" ".env*"
 
-# デプロイ
 az webapp deploy \
   --name <アプリ名> \
   --resource-group <リソースグループ名> \
@@ -242,33 +284,13 @@ az webapp deploy \
   --type zip
 ```
 
-スタートアップコマンドと環境変数の設定は方法1と同じです。
+`.env*` を除外すること (本番のシークレットをデプロイ物に含めないため)。
 
-#### 方法3: ローカルGitデプロイ (非推奨)
+> **uv 移行PR (#3) との関係について**: Azure (Oryx) の Python ビルドは `requirements.txt` を前提とします。
+> uv 移行PR (kc26-vol/event-scheduler#3) で `requirements.txt` が廃止される場合は、
+> `uv export --format requirements-txt` などにより `requirements.txt` を生成してからデプロイするか、
+> 両PRのマージ後にデプロイ手順の整合を取ってください。
 
-`frontend/dist` は `.gitignore` で除外されているため、ローカルGitデプロイではビルド成果物が
-デプロイ物に含まれず、アプリ本体が表示されません。使う場合はデプロイ用ブランチで
-`frontend/dist` を強制的にコミット (`git add -f frontend/dist`) するなどの運用が必要です。
-**方法1 (GitHub Actions) または方法2 (Azure CLI) を推奨します。**
-
-```bash
-# デプロイソースをローカルGitに設定
-az webapp deployment source config-local-git \
-  --name <アプリ名> \
-  --resource-group <リソースグループ名>
-
-# 出力されたURLをリモートに追加
-git remote add azure https://<アプリ名>.scm.azurewebsites.net/<アプリ名>.git
-
-# デプロイ
-git push azure main
-```
-
-初回pushでAzureのデプロイ資格情報を求められます。資格情報は以下で設定:
-
-```bash
-az webapp deployment user set --user-name <ユーザー名> --password <パスワード>
-```
 
 ## ライセンス
 
