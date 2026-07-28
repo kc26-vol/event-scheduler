@@ -18,6 +18,29 @@ ENV      ?= prod
 ENV_FILE ?= .env.$(ENV)
 ZIP      := .deploy/deploy.zip
 
+# ENV=all のときに処理する環境と、その順序。
+# staging を先に流し、そこで失敗したら本番へ進まない。
+# 検証を挟まずに本番が変わるのを避けるため、この順序は固定にする。
+ENV_ALL := staging prod
+
+# ENV=all のときは環境ごとの再帰側で check-env を評価するので、
+# 呼び出し口では前提条件を付けない (.env.all は存在しないため)。
+ifeq ($(ENV),all)
+ENV_DEPS :=
+else
+ENV_DEPS := check-env
+endif
+
+# 各環境へ順に再帰する。$(1) はターゲット名。
+# 途中で失敗したらそこで打ち切る (後続の環境には進まない)。
+define for_each_env
+@for e in $(ENV_ALL); do \
+	  echo ""; \
+	  echo "════════ [$$e] make $(1) ════════"; \
+	  $(MAKE) --no-print-directory $(1) ENV=$$e || exit $$?; \
+	done
+endef
+
 # .env.prod は make の include ではなく各レシピ内で source する。
 # シークレットに # や空白が含まれても壊れないようにするため。
 # 相対パスは ./ を付ける ($PATH 探索を避けるため)。絶対パスはそのまま使う。
@@ -51,13 +74,17 @@ help: ## コマンド一覧を表示
 	@echo "Event Scheduler デプロイ"
 	@echo
 	@echo "  対象環境: ENV=$(ENV)  ($(ENV_FILE))"
-	@echo "  別環境にするには ENV=staging のように付ける"
+	@echo "  別環境にするには ENV=staging を付ける"
+	@echo "  ENV=all で $(ENV_ALL) の順に処理 (deploy / sync-settings / backup / verify)"
 	@echo
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo
 
 check-env:
+	@test "$(ENV)" != "all" || { \
+	  echo "ERROR: ENV=all はこのターゲットでは使えません。"; \
+	  echo "       対応: deploy / deploy-no-backup / sync-settings / backup / verify"; exit 1; }
 	@test -f $(ENV_FILE) || { \
 	  echo "ERROR: $(ENV_FILE) がありません (ENV=$(ENV))。"; \
 	  echo "       cp .env.prod.example $(ENV_FILE) && chmod 600 $(ENV_FILE)"; exit 1; }
@@ -97,11 +124,19 @@ check-data-dir: check-env ## 対象環境の DATA_DIR が永続領域を指し�
 # ENV_NAME はバックアップのファイル名と基準ファイルの区別に使う。
 # 渡さないと staging のデータが prod-*.zip として保存され、
 # 本番のバックアップと見分けがつかなくなる。
-backup: check-env ## 対象環境のデータをローカルへバックアップ (backups/ に保存)
+backup: $(ENV_DEPS) ## 対象環境のデータをローカルへバックアップ (backups/ に保存)
+ifeq ($(ENV),all)
+	$(call for_each_env,backup)
+else
 	@$(LOAD_ENV) && ENV_NAME=$(ENV) bash scripts/prod_backup.sh
+endif
 
-verify: check-env ## デプロイ後にアプリ起動とデータ件数を確認
+verify: $(ENV_DEPS) ## デプロイ後にアプリ起動とデータ件数を確認
+ifeq ($(ENV),all)
+	$(call for_each_env,verify)
+else
 	@$(LOAD_ENV) && ENV_NAME=$(ENV) bash scripts/prod_verify.sh
+endif
 
 build: ## フロントエンドをビルド (frontend/dist を生成)
 	cd frontend && pnpm install --frozen-lockfile && pnpm build
@@ -120,16 +155,25 @@ package: build
 
 # check-data-dir → backup → package の順に必ず通す。
 # DATA_DIR 検証かバックアップ取得が失敗した時点で、デプロイまで到達しない。
+ifeq ($(ENV),all)
+deploy: ## バックアップ→デプロイ→検証 (通常はこれを使う)
+	$(call for_each_env,deploy)
+else
 deploy: check-env check-data-dir backup package ## バックアップ→デプロイ→検証 (通常はこれを使う)
 	@$(LOAD_ENV) && echo "デプロイ先: [$(ENV)] $$AZURE_WEBAPP_NAME ($$AZURE_RESOURCE_GROUP)"
 	@$(LOAD_ENV) && az webapp deploy \
 	  --name "$$AZURE_WEBAPP_NAME" \
 	  --resource-group "$$AZURE_RESOURCE_GROUP" \
 	  --src-path $(ZIP) --type zip
-	@$(MAKE) --no-print-directory verify
+	@$(MAKE) --no-print-directory verify ENV=$(ENV)
 	@$(LOAD_ENV) && echo "完了: https://$$AZURE_WEBAPP_NAME.azurewebsites.net"
+endif
 
 # バックアップを飛ばす緊急用。データ消失時に復元できなくなるため通常は使わない。
+ifeq ($(ENV),all)
+deploy-no-backup: ## [非推奨] バックアップ無しでデプロイ
+	$(call for_each_env,deploy-no-backup)
+else
 deploy-no-backup: check-env check-data-dir package ## [非推奨] バックアップ無しでデプロイ
 	@echo "警告: バックアップを取らずにデプロイします。"
 	@$(LOAD_ENV) && read -r -p "[$(ENV)] $$AZURE_WEBAPP_NAME に、バックアップ無しでデプロイします。続けますか? [y/N] " ans; \
@@ -138,9 +182,13 @@ deploy-no-backup: check-env check-data-dir package ## [非推奨] バックア�
 	  --name "$$AZURE_WEBAPP_NAME" \
 	  --resource-group "$$AZURE_RESOURCE_GROUP" \
 	  --src-path $(ZIP) --type zip
-	@$(MAKE) --no-print-directory verify
+	@$(MAKE) --no-print-directory verify ENV=$(ENV)
+endif
 
-sync-settings: check-env ## アプリ設定を Azure へ反映 (対象環境を変更します)
+sync-settings: $(ENV_DEPS) ## アプリ設定を Azure へ反映 (対象環境を変更します)
+ifeq ($(ENV),all)
+	$(call for_each_env,sync-settings)
+else
 	@$(LOAD_ENV) && echo "対象環境: ENV=$(ENV)  ($(ENV_FILE))"
 	@$(LOAD_ENV) && echo "対象アプリ: $$AZURE_WEBAPP_NAME ($$AZURE_RESOURCE_GROUP)"
 	@echo "反映キー: $(SYNC_KEYS)"
@@ -159,6 +207,7 @@ sync-settings: check-env ## アプリ設定を Azure へ反映 (対象環境を�
 	  --settings @.deploy/settings.json -o none; \
 	  rc=$$?; rm -f .deploy/settings.json; exit $$rc
 	@echo "反映しました (アプリが再起動します)"
+endif
 
 test: ## バックエンドのテストを実行
 	python3 -m pytest tests/ -q

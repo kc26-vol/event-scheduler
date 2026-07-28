@@ -169,9 +169,15 @@ $EDITOR .env.prod   # AZURE_WEBAPP_NAME・APP_PASSWORD などを埋める
 対象環境は `ENV` で指定します。既定は本番 (`prod`) です。
 
 ```bash
-make deploy                # .env.prod   → 本番
-make deploy ENV=staging    # .env.staging → staging
+make deploy                # .env.prod    → 本番のみ
+make deploy ENV=staging    # .env.staging → staging のみ
+make deploy ENV=all        # staging → 本番 の順に両方
 ```
+
+`ENV=all` は `staging` を先に流し、**そこで失敗したら本番へ進みません**
+(検証を挟まずに本番が変わるのを防ぐため、この順序は固定です)。
+環境ごとに確認プロンプトが出ます。対応するのは
+`deploy` / `deploy-no-backup` / `sync-settings` / `backup` / `verify` です。
 
 バックアップのファイル名も環境ごとに分かれます
 (`backups/prod-<日時>.zip` / `backups/staging-<日時>.zip`)。
