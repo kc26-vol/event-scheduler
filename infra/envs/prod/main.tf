@@ -45,10 +45,9 @@ module "app" {
   # /home のマウント未完了による起動失敗の機会も減る。
   always_on = false
 
-  # 注意: ここは「あるべき姿」の記述であって、apply しても反映されない。
-  # モジュール側で app_settings ごと ignore_changes にしている
-  # (理由は infra/modules/webapp/main.tf のコメント)。
-  # 実際に反映するのは make sync-settings。値を変えたらそちらも実行すること。
+  # ここが効くのは環境を新規作成するときだけ。作成済みの環境では
+  # ignore_changes により無視される (詳細は infra/modules/webapp/main.tf)。
+  # 稼働中の値を変えるには .env.<環境> を直して make sync-settings ENV=<環境>。
   app_settings = {
     APP_PASSWORD                   = var.app_password
     SESSION_SECRET                 = var.session_secret

@@ -155,8 +155,8 @@ make deploy
 この順に必ず通し、途中で失敗した時点で中断します
 (バックアップが取れなければデプロイまで到達しません)。
 
-接続先と本番の環境変数は `.env.prod` から読み込みます。初回のみ用意してください
-(`.env.prod` は `.gitignore` 済みです。本番のシークレットを含むためコミットしないこと)。
+接続先と環境変数は `.env.<環境>` から読み込みます。初回のみ用意してください
+(`.env.*` は `.gitignore` 済みです。シークレットを含むためコミットしないこと)。
 
 ```bash
 cp .env.prod.example .env.prod
@@ -164,17 +164,31 @@ chmod 600 .env.prod
 $EDITOR .env.prod   # AZURE_WEBAPP_NAME・APP_PASSWORD などを埋める
 ```
 
+### 環境の切り替え
+
+対象環境は `ENV` で指定します。既定は本番 (`prod`) です。
+
+```bash
+make deploy                # .env.prod   → 本番
+make deploy ENV=staging    # .env.staging → staging
+```
+
+バックアップのファイル名も環境ごとに分かれます
+(`backups/prod-<日時>.zip` / `backups/staging-<日時>.zip`)。
+`make sync-settings` と `make deploy-no-backup` の確認プロンプトには
+対象の環境名とアプリ名が出ます。
+
 ### コマンド一覧
 
-`make` または `make help` で一覧が出ます。
+`make` または `make help` で一覧が出ます (現在の対象環境も表示されます)。
 
 | コマンド | 内容 |
 |---|---|
 | `make deploy` | バックアップ→デプロイ→検証。通常はこれを使う |
-| `make backup` | 本番データを `backups/` へ取得 (アプリのバックアップAPI経由) |
-| `make check-data-dir` | 本番の `DATA_DIR` が永続領域を指しているか検証 |
+| `make backup` | 対象環境のデータを `backups/` へ取得 (アプリのバックアップAPI経由) |
+| `make check-data-dir` | 対象環境の `DATA_DIR` が永続領域を指しているか検証 |
 | `make verify` | 起動確認とデータ件数の検証 |
-| `make sync-settings` | `.env.prod` のアプリ設定を Azure へ反映 (明示実行のみ) |
+| `make sync-settings` | `.env.<環境>` のアプリ設定を Azure へ反映 (明示実行のみ) |
 | `make build` | フロントエンドのビルド |
 | `make test` | バックエンドのテスト |
 | `make logs` | 実行中のログを表示 |

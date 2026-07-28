@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
-# 本番データをローカルへバックアップする。
+# 対象環境のデータをローカルへバックアップする。
 #
 # デプロイ前に必ず実行される (Makefile の deploy が backup に依存)。
 # アプリ自身のバックアップAPI (GET /api/export/backup) を使うため、
 # DB本体・アップロード画像・設定がまとめて1つのzipに入る。
 #
-# 必要な環境変数 (.env.prod から読み込まれる):
+# 必要な環境変数 (.env.<環境> から読み込まれる):
 #   AZURE_WEBAPP_NAME, APP_PASSWORD
+# 任意:
+#   ENV_NAME  ファイル名の接頭辞 (既定: prod)。Makefile が ENV を渡す。
 set -euo pipefail
 
 : "${AZURE_WEBAPP_NAME:?AZURE_WEBAPP_NAME が未設定です}"
-: "${APP_PASSWORD:?APP_PASSWORD が未設定です (.env.prod を確認してください)}"
+: "${APP_PASSWORD:?APP_PASSWORD が未設定です (.env ファイルを確認してください)}"
+
+# 環境ごとにファイル名を分ける。分けないと staging のバックアップが
+# 本番のものと同じ名前で並び、復元時に取り違える。
+ENV_NAME="${ENV_NAME:-prod}"
 
 URL="https://${AZURE_WEBAPP_NAME}.azurewebsites.net"
 TS="$(date +%Y%m%d-%H%M%S)"
 DIR="backups"
-ZIP="${DIR}/prod-${TS}.zip"
-COUNTS="${DIR}/prod-${TS}.counts.json"
+ZIP="${DIR}/${ENV_NAME}-${TS}.zip"
+COUNTS="${DIR}/${ENV_NAME}-${TS}.counts.json"
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
 
@@ -88,4 +94,4 @@ print('[backup] 件数: ' + ', '.join(f'{k}={v}' for k, v in counts.items()))
 "
 
 echo "[backup] 保存しました: ${ZIP} ($(du -h "$ZIP" | cut -f1))"
-echo "$ZIP" > "${DIR}/.latest"
+echo "$ZIP" > "${DIR}/.latest-${ENV_NAME}"

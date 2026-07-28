@@ -13,9 +13,18 @@ URL="https://${AZURE_WEBAPP_NAME}.azurewebsites.net"
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
 
+# 比較の基準は同じ環境のバックアップだけを使う。
+# 環境をまたいで比べると、件数の違いをデータ消失と誤検知する。
+ENV_NAME="${ENV_NAME:-prod}"
+LATEST="backups/.latest-${ENV_NAME}"
+# 環境別に分ける前 (.latest) の記録が残っていれば、本番の基準として引き継ぐ
+if [ ! -f "$LATEST" ] && [ "$ENV_NAME" = "prod" ] && [ -f backups/.latest ]; then
+  LATEST="backups/.latest"
+fi
+
 BASELINE=""
-if [ -f backups/.latest ]; then
-  BASELINE="$(cat backups/.latest)"
+if [ -f "$LATEST" ]; then
+  BASELINE="$(cat "$LATEST")"
   BASELINE="${BASELINE%.zip}.counts.json"
 fi
 
