@@ -6,3 +6,14 @@ venv/
 uploads/
 node_modules/
 frontend/dist/
+
+# デプロイ設定 (本番のシークレットを含む。コミット厳禁)
+.env
+.env.prod
+!.env.prod.example
+
+# make deploy の中間生成物
+.deploy/
+
+# 本番バックアップ (実データを含む。コミット厳禁)
+backups/
