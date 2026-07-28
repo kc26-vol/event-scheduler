@@ -132,7 +132,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AvatarIcon from '../components/AvatarIcon.vue'
 import PersonSwitcher from '../components/PersonSwitcher.vue'
@@ -142,10 +142,11 @@ import EmptyState from '../components/EmptyState.vue'
 import TimeRange from '../components/TimeRange.vue'
 import { useStore } from '../store'
 import { useMe } from '../composables/useMe'
+import { useShiftsOf } from '../composables/useShifts'
 import { dateKey, mdw, durationMin, humanDuration, toDate } from '../utils/datetime'
 import type { Session, Staff } from '../types'
 
-const { staffAssignmentsWithAll, schedule, loaded, catLabel, CAT_BG, toggleSessionDetail } = useStore()
+const { schedule, loaded, catLabel, CAT_BG, toggleSessionDetail } = useStore()
 const { viewing, viewingStaffId, isViewingSelf, myStaffId, viewAs, backToMe } = useMe()
 
 /* --- 閲覧対象を URL に載せる ---
@@ -170,10 +171,9 @@ watch(viewingStaffId, id => {
     router.replace({ query })
 })
 
-/* --- 現在時刻。カウントダウンと進行中判定に使う --- */
-const now = ref(new Date())
-const timer = window.setInterval(() => { now.value = new Date() }, 30_000)
-onBeforeUnmount(() => window.clearInterval(timer))
+/* --- 閲覧対象の担当と、そのうち今どれか ---
+ * サイドバーの「自分」ブロックと同じ判定を使う (useShifts)。 */
+const { now, shifts, current: currentShift, next: nextShift, anchor: anchorShift } = useShiftsOf(viewingStaffId)
 
 const ready = computed(() => loaded.staffAssignments && loaded.schedule && loaded.staffs)
 
@@ -181,17 +181,6 @@ const viewingRoles = computed(() => {
     const r = viewing.value?.role
     if (!r) return []
     return Array.isArray(r) ? r : [r]
-})
-
-/* --- 自分(閲覧対象)の担当一覧 --- */
-const shifts = computed<Session[]>(() => {
-    const id = viewingStaffId.value
-    if (id === null) return []
-    const entry = staffAssignmentsWithAll.value.find(e => e.staff.id === id)
-    if (!entry) return []
-    return [...entry.assigned_sessions].sort((a, b) =>
-        (a.start_time || '').localeCompare(b.start_time || '')
-    )
 })
 
 /* --- 日程ごとにまとめる --- */
@@ -240,27 +229,6 @@ const dayTimeline = computed<TimelineItem[]>(() => {
     })
     return out
 })
-
-/* --- 進行中 / 次 --- */
-const currentShift = computed(() => {
-    const t = now.value.getTime()
-    return shifts.value.find(s => {
-        const st = toDate(s.start_time)?.getTime()
-        const en = toDate(s.end_time)?.getTime()
-        return st !== undefined && en !== undefined && st <= t && t < en
-    }) ?? null
-})
-
-const nextShift = computed(() => {
-    const t = now.value.getTime()
-    return shifts.value.find(s => {
-        const st = toDate(s.start_time)?.getTime()
-        return st !== undefined && st > t
-    }) ?? null
-})
-
-/** 開いたときに目を向けさせたい1件。進行中があればそれ、無ければ次。 */
-const anchorShift = computed(() => currentShift.value ?? nextShift.value)
 
 // 既定の日程は「見せたい担当がある日」。それが無ければ当日、
 // 当日も開催日でなければこれから来る最初の日、最後に最終日。

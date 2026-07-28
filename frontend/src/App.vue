@@ -49,6 +49,7 @@
                 <button class="sidebar-item" :class="{ active: tab === 'public-api' }" @click="switchTab('public-api')">公開API</button>
             </div>
 
+            <SidebarMe />
             <div class="sidebar-version">version 0.1.14</div>
         </nav>
 
@@ -218,6 +219,7 @@ import PersonChip from './components/PersonChip.vue'
 import TimeRange from './components/TimeRange.vue'
 import SearchSelect from './components/SearchSelect.vue'
 import IdentityGate from './components/IdentityGate.vue'
+import SidebarMe from './components/SidebarMe.vue'
 
 const route = useRoute()
 
@@ -265,9 +267,10 @@ const assignOptions = computed(() => {
 </script>
 
 <style scoped>
+/* 下端寄せは SidebarMe が担う (margin-top:auto)。ここで重ねると隙間が空く。 */
 .sidebar-version {
-    padding: 12px 16px; font-size: 0.75rem; color: #94a3b8;
-    text-align: center; margin-top: auto;
+    padding: var(--sp-3) var(--sp-4); font-size: 0.75rem; color: #94a3b8;
+    text-align: center;
 }
 .app-bar-me {
     flex-shrink: 0; background: none; border: none; cursor: pointer;
