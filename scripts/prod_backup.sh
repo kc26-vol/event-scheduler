@@ -51,7 +51,10 @@ fetch_backup() {
     echo "[backup]   取得に失敗しました (HTTP $code)" >&2
     return 1
   fi
-  if ! unzip -l "$ZIP" >/dev/null 2>&1; then
+  # -l ではなく -t を使う。転送が途中で切れた zip は
+  # ローカルヘッダが読めるため -l や -p は通ってしまい、壊れたバックアップを
+  # 「取得できた」と誤判定する。CRC まで検証する -t でないと検出できない。
+  if ! unzip -t "$ZIP" >/dev/null 2>&1; then
     echo "[backup]   zipが壊れています (転送が途中で切れた可能性)" >&2
     return 1
   fi

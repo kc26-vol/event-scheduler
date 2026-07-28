@@ -40,6 +40,10 @@ module "app" {
     TZ                             = var.timezone
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
 
+    # /home を永続ストレージとしてマウントする。組み込みイメージでは既定で
+    # 永続だが、カスタムコンテナでは既定が false のため明示しておく。
+    WEBSITES_ENABLE_APP_SERVICE_STORAGE = "true"
+
     # staging は新規作成なので /home/data が空。初回起動時のみ
     # 空ボリュームを許可する (起動時ガードを通すため)。
     # 一度データが入ったらこの行を消して apply し直すこと。
