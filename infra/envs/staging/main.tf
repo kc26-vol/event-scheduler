@@ -39,6 +39,7 @@ module "app" {
     DATA_DIR                       = var.data_dir
     TZ                             = var.timezone
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
+    WEB_CONCURRENCY                = var.web_concurrency
 
     # /home を永続ストレージとしてマウントする。組み込みイメージでは既定で
     # 永続だが、カスタムコンテナでは既定が false のため明示しておく。

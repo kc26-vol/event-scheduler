@@ -6,8 +6,30 @@ Bot / abuse protection utilities.
 - Security headers middleware
 """
 
+import os
 import time
 from collections import defaultdict
+
+
+def worker_count() -> int:
+    """gunicorn の worker 数。按分の分母に使う。
+
+    レート制限もログイン失敗の記録もプロセス内メモリで持っているため、
+    worker が N プロセスあると実効的な上限が N 倍に緩む。とくにログインの
+    ブルートフォース防御が N 倍の試行を許してしまうので、閾値を割っておく。
+
+    値は gunicorn が worker 数を決めるのと同じ WEB_CONCURRENCY から読む
+    (起動コマンドで -w を指定せず、この環境変数に一本化している)。
+    """
+    try:
+        return max(int(os.environ.get("WEB_CONCURRENCY", "1")), 1)
+    except ValueError:
+        return 1
+
+
+def _per_worker(total: int) -> int:
+    """全体の上限を1 worker あたりに割り当てる (最低1)。"""
+    return max(total // worker_count(), 1)
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -76,28 +98,32 @@ class RateLimiter:
 # Global rate limiter instance
 rate_limiter = RateLimiter()
 
+# 以下の上限は「アプリ全体で1IPあたり」の値。バケットは worker ごとに
+# 独立しているため、_per_worker で頭割りにしてから登録する。
+
 # Login: 5 attempts per 60 seconds per IP
-rate_limiter.add_rule("/auth/verify", max_requests=5, window_seconds=60)
+rate_limiter.add_rule("/auth/verify", max_requests=_per_worker(5), window_seconds=60)
 
 # API: 300 requests per 60 seconds per IP
-rate_limiter.add_rule("/api/", max_requests=300, window_seconds=60)
+rate_limiter.add_rule("/api/", max_requests=_per_worker(300), window_seconds=60)
 
 # Public API: 60 requests per 60 seconds per IP
 # 画像は1ページの表示で数十枚まとめて取りに来るため、データ系の枠とは分ける。
 # (同じ枠だと、登壇者写真の多いページを2人が同時に開いただけで 429 になる)
 PUBLIC_PHOTO_PREFIX = "/public/api/photo/"
 rate_limiter.add_rule(
-    "/public/api/", max_requests=60, window_seconds=60,
+    "/public/api/", max_requests=_per_worker(60), window_seconds=60,
     exclude_prefixes=(PUBLIC_PHOTO_PREFIX,),
 )
-rate_limiter.add_rule(PUBLIC_PHOTO_PREFIX, max_requests=600, window_seconds=60)
+rate_limiter.add_rule(PUBLIC_PHOTO_PREFIX, max_requests=_per_worker(600), window_seconds=60)
 
 
 # ---------------------------------------------------------------------------
 # Login brute-force lockout
 # ---------------------------------------------------------------------------
 _login_failures: dict[str, list[float]] = defaultdict(list)
-LOGIN_LOCKOUT_THRESHOLD = 10  # failures within window
+# アプリ全体で10回。失敗記録も worker ごとなので頭割りにする。
+LOGIN_LOCKOUT_THRESHOLD = _per_worker(10)  # failures within window
 LOGIN_LOCKOUT_WINDOW = 300    # 5 minutes
 LOGIN_LOCKOUT_DURATION = 600  # 10 minutes lockout
 

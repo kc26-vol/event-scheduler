@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -27,14 +28,18 @@ DATABASE_URL = f"sqlite:///{DATA_DIR}/scheduler.db"
 # Timezone helper
 # ---------------------------------------------------------------------------
 _tz_cache: ZoneInfo | None = None
-_tz_loaded: bool = False
+_tz_loaded_at: float = 0.0
+# gunicorn を複数 worker で動かすため、reload_tz() は設定変更を処理した worker に
+# しか効かない。他の worker がいつまでも古いタイムゾーンを使い続けないよう、
+# キャッシュに寿命を持たせて自力で追いつかせる。
+_TZ_CACHE_TTL = 60.0
 
 
 def get_app_tz() -> ZoneInfo:
     """app_settings の timezone 値からタイムゾーンを取得（キャッシュ付き）"""
-    global _tz_cache, _tz_loaded
-    if _tz_loaded:
-        return _tz_cache or ZoneInfo("Asia/Tokyo")
+    global _tz_cache, _tz_loaded_at
+    if _tz_cache is not None and time.time() - _tz_loaded_at < _TZ_CACHE_TTL:
+        return _tz_cache
     try:
         from .database import SessionLocal
         from .models import AppSetting
@@ -47,15 +52,19 @@ def get_app_tz() -> ZoneInfo:
             db.close()
     except Exception:
         _tz_cache = ZoneInfo("Asia/Tokyo")
-    _tz_loaded = True
+    _tz_loaded_at = time.time()
     return _tz_cache
 
 
 def reload_tz():
-    """タイムゾーン設定変更後にキャッシュをクリア"""
-    global _tz_cache, _tz_loaded
+    """タイムゾーン設定変更後にキャッシュをクリア
+
+    これを呼べるのは設定変更を処理した worker だけ。他の worker は
+    _TZ_CACHE_TTL の経過を待って追いつく。
+    """
+    global _tz_cache, _tz_loaded_at
     _tz_cache = None
-    _tz_loaded = False
+    _tz_loaded_at = 0.0
 
 
 def now() -> datetime:

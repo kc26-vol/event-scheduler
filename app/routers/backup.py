@@ -32,6 +32,17 @@ def _dt_str(dt: datetime | None) -> str:
 
 def create_backup_zip(db: Session) -> bytes:
     """全データを ZIP バイト列として作成（auto_backup / export 共用）"""
+    data = collect_backup_data(db)
+    # 画像の zip 化は Azure Files 越しに数分かかることがある。
+    # その間 DB 接続 (とトランザクション) を握ったままだと、他の worker の
+    # 書き込みがその間ずっと SQLite のロック待ちになる。
+    # data は素の dict なので、ここで DB から離れてよい。
+    db.close()
+    return build_backup_zip(data)
+
+
+def collect_backup_data(db: Session) -> dict:
+    """DB から全データを読み出して素の dict にする（ここだけが DB を触る）"""
     rooms = db.query(Room).order_by(Room.id).all()
     venue_maps = db.query(VenueMap).order_by(VenueMap.id).all()
     sessions = (
@@ -130,6 +141,11 @@ def create_backup_zip(db: Session) -> bytes:
         ],
     }
 
+    return data
+
+
+def build_backup_zip(data: dict) -> bytes:
+    """dict と uploads/ を ZIP に固める（DB は触らない）"""
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("data.json", json.dumps(data, ensure_ascii=False, indent=2))

@@ -19,6 +19,8 @@ from ..models import (
     Session as SessionModel, Staff, Assignment, Room,
     LTTalk, Category, SessionGroup, AppSetting,
 )
+from ..utils import upload_path
+
 router = APIRouter(prefix="/api/export", tags=["export"])
 
 HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
@@ -99,7 +101,7 @@ def _auto_width(ws, max_rows=100):
 
 def _add_photo(ws, photo_path: str, col: int, row: int):
     """ワークシートのセルに元画像をそのまま埋め込む（セル内に収まるようリサイズ表示）"""
-    file_path = Path("." + photo_path)
+    file_path = upload_path(photo_path)
     if not file_path.exists():
         return
     try:

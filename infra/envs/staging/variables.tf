@@ -37,3 +37,9 @@ variable "timezone" {
   type        = string
   default     = "Asia/Tokyo"
 }
+
+variable "web_concurrency" {
+  description = "gunicorn の worker プロセス数 (WEB_CONCURRENCY)"
+  type        = string
+  default     = "3"
+}

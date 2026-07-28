@@ -17,9 +17,18 @@ from .models import (
     StaffPreferredSession, StaffAvailability, VenueMap, Assignment, Category, SessionGroup,
     AppSetting,
 )
+from .proclock import ProcessLock
 from .routers import rooms, sessions, staffs, assignments, venue_maps, export, backup, auth, settings, categories, session_groups, auto_backup, public_api
 
-Base.metadata.create_all(bind=engine)
+# 起動時の初期化 (テーブル作成・マイグレーション・初期データ投入) は
+# 全 worker が同時に走る。CREATE TABLE の「存在確認 → 作成」はプロセスを
+# またぐと不可分でないため、素通しにすると
+# "table venue_maps already exists" で worker が起動に失敗する。
+#
+# ここは import 時、つまりイベントループが動き出す前に実行されるので、
+# ブロックするロックを掛けても安全 (リクエスト処理系で同じことをすると
+# デッドロックする。app/database.py のコメントを参照)。
+_init_lock = ProcessLock("init")
 
 # --- Auto-migration: add missing columns to existing tables ---
 from sqlalchemy import text as sa_text
@@ -95,29 +104,31 @@ def _table_exists(name: str) -> bool:
         ), {"n": name}).fetchone() is not None
 
 
-try:
-    _auto_migrate()
-    _ensure_overall_room()
-    print("[migration] Auto-migration complete")
+with _init_lock:
+    try:
+        Base.metadata.create_all(bind=engine)
+        _auto_migrate()
+        _ensure_overall_room()
+        print("[migration] Auto-migration complete")
 
-    # 既存DBにsetup_completedがない場合、データが存在すれば自動設定
-    with engine.connect() as conn:
-        row = conn.execute(sa_text("SELECT value FROM app_settings WHERE key='setup_completed'")).fetchone()
-        if not row:
-            data_exists = conn.execute(sa_text(
-                "SELECT 1 FROM sessions LIMIT 1"
-            )).fetchone()
-            if data_exists:
-                conn.execute(sa_text(
-                    "INSERT INTO app_settings (key, value) VALUES ('setup_completed', '1')"
-                ))
-                conn.commit()
-                print("[migration] Existing data found — setup_completed auto-set")
+        # 既存DBにsetup_completedがない場合、データが存在すれば自動設定
+        with engine.connect() as conn:
+            row = conn.execute(sa_text("SELECT value FROM app_settings WHERE key='setup_completed'")).fetchone()
+            if not row:
+                data_exists = conn.execute(sa_text(
+                    "SELECT 1 FROM sessions LIMIT 1"
+                )).fetchone()
+                if data_exists:
+                    conn.execute(sa_text(
+                        "INSERT INTO app_settings (key, value) VALUES ('setup_completed', '1')"
+                    ))
+                    conn.commit()
+                    print("[migration] Existing data found — setup_completed auto-set")
 
-except Exception as e:
-    print(f"[migration] ERROR: {e}")
-    import traceback
-    traceback.print_exc()
+    except Exception as e:
+        print(f"[migration] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -359,7 +370,9 @@ def _seed_all():
         db.close()
 
 
-_seed_all()
+# 「まだ空か」を確認してから投入するので、worker 間で不可分にする必要がある。
+with _init_lock:
+    _seed_all()
 
 @app.get("/setup.html", response_class=HTMLResponse)
 def setup_page():
