@@ -2,11 +2,53 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#1e293b">
     <title>Event Scheduler</title>
+    <!--
+      Vue が mount するまでのあいだに見えるアプリシェル。
+      これが無いと、JS の評価が終わるまで真っ白な画面が出る。
+      #app に中身が入った時点で CSS 側から消える。
+    -->
+    <style>
+        :root { color-scheme: light; }
+        html, body { margin: 0; padding: 0; }
+        body { background: #f0f2f5; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+        #boot { display: flex; min-height: 100vh; }
+        #boot .boot-nav { width: 200px; flex-shrink: 0; background: #1e293b; }
+        #boot .boot-main { flex: 1; background: #fff; padding: 28px 24px; }
+        #boot .boot-bar {
+            height: 20px; border-radius: 8px; margin-bottom: 14px;
+            background: linear-gradient(90deg, #eef0f2 25%, #f6f7f8 37%, #eef0f2 63%);
+            background-size: 400% 100%;
+            animation: boot-shimmer 1.3s ease-in-out infinite;
+        }
+        #boot .boot-bar.tall { height: 84px; }
+        #boot .boot-bar.w40 { width: 40%; }
+        #boot .boot-bar.w70 { width: 70%; }
+        @keyframes boot-shimmer { 0% { background-position: 100% 50% } 100% { background-position: 0 50% } }
+        @media (max-width: 768px) {
+            #boot .boot-nav { display: none; }
+            #boot .boot-main { padding: 16px 12px; }
+        }
+        @media (prefers-reduced-motion: reduce) { #boot .boot-bar { animation: none; } }
+        /* mount 後は不要 */
+        #app:not(:empty) + #boot { display: none; }
+    </style>
 </head>
 <body>
     <div id="app"></div>
+    <div id="boot" aria-hidden="true">
+        <div class="boot-nav"></div>
+        <div class="boot-main">
+            <div class="boot-bar w40"></div>
+            <div class="boot-bar tall"></div>
+            <div class="boot-bar w70"></div>
+            <div class="boot-bar"></div>
+            <div class="boot-bar w70"></div>
+        </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

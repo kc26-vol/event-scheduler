@@ -20,7 +20,7 @@
                     class="tab-btn"
                     :style="overallDateTab === date ? {background:'#e65100', color:'#fff'} : {background:'#f5f5f5', color:'#666'}"
                     @click="overallDateTab = date">
-                    {{ date }}
+                    {{ date }}<span v-if="isTodayDate(date)" class="today-dot">今日</span>
                 </button>
             </div>
 
@@ -38,17 +38,15 @@
             </div>
 
             <!-- スタッフフィルター -->
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                <label style="font-weight:600;font-size:0.9rem">スタッフ絞り込み:</label>
-                <select v-model.number="overallStaffFilter" style="padding:6px 12px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;min-width:180px">
-                    <option :value="0">全員表示</option>
-                    <option v-for="s in staffs" :key="s.id" :value="s.id">{{ s.name }}</option>
-                </select>
-            </div>
+            <StaffFilterSelect v-model="overallStaffFilter" />
 
             <!-- マトリクス -->
             <h3 style="margin-top:0">配置表</h3>
-            <p v-if="!overallDateFiltered().length">全体スケジュールがまだ登録されていません。</p>
+            <SkeletonBlock v-if="!loaded.schedule" :lines="4" :height="64" label="配置表を読み込み中" />
+            <EmptyState v-else-if="!overallDateFiltered().length"
+                icon="&#128197;"
+                title="全体スケジュールがまだ登録されていません"
+                hint="「管理」→「全体スケジュール管理」から追加してください。" />
             <template v-else-if="overallDateTab !== 0">
                 <tl-grid
                     :grid-style="ovGridStyle()" :rooms="ovGridRooms()" :labels="ovGridLabels()"
@@ -69,14 +67,14 @@
                              :style="{opacity: overallSessionOpacity(entry)}"
                              @click="toggleSessionDetail(entry.session.id)">
                             <div class="tl-list-time">
-                                {{ fmtShort(entry.session.start_time) }} - {{ fmtShort(entry.session.end_time) }}
+                                <TimeRange :start="entry.session.start_time" :end="entry.session.end_time" :show-date="false" size="sm" />
                             </div>
                             <div class="tl-list-main" :style="allSessionBg('overall')">
                                 <div style="font-weight:600;font-size:0.9rem">{{ entry.session.title }}</div>
                                 <div style="margin-top:4px">
                                     <span v-if="entry.session.required_staff === -1" class="badge" style="background:#e65100;color:#fff">全員</span>
                                     <template v-else-if="entry.assigned_staff.length">
-                                        <span class="badge" v-for="a in entry.assigned_staff" :key="a.assignment_id">{{ a.staff.name }}</span>
+                                        <PersonChip v-for="a in entry.assigned_staff" :key="a.assignment_id" :staff="a.staff" size="xs" />
                                     </template>
                                     <span v-else-if="entry.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                     <span v-else class="badge warn">未配置</span>
@@ -99,7 +97,7 @@
                         :style="{ opacity: overallSessionOpacity(e) }">
                         <td v-if="!overallLocked"><input type="checkbox" :checked="overallSelectedSessions.has(e.session.id)" @change="toggleOverallSessionSelect(e.session.id)"></td>
                         <td><a href="#" @click.prevent="toggleSessionDetail(e.session.id)" style="color:#1a73e8;text-decoration:none"><strong>{{ e.session.title }}</strong></a></td>
-                        <td style="white-space:nowrap">{{ fmtShort(e.session.start_time) }} - {{ fmtShort(e.session.end_time) }}</td>
+                        <td style="white-space:nowrap"><TimeRange :start="e.session.start_time" :end="e.session.end_time" :show-date="false" size="sm" inline /></td>
                         <td>{{ e.session.room ? e.session.room.name : '' }}</td>
                         <td>
                             <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
@@ -109,22 +107,14 @@
                                 </span>
                                 <template v-else>
                                     <template v-if="e.assigned_staff.length">
-                                        <span class="badge" v-for="a in e.assigned_staff" :key="a.assignment_id" style="display:inline-flex;align-items:center;gap:4px">
-                                            {{ a.staff.name }}
-                                            <button v-if="!overallLocked" @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
-                                        </span>
+                                        <PersonChip v-for="a in e.assigned_staff" :key="a.assignment_id" :staff="a.staff" size="xs">
+                                            <button v-if="!overallLocked" @click.stop="removeAssignment(a.assignment_id)" class="chip-x" title="削除">&#10005;</button>
+                                        </PersonChip>
                                     </template>
                                     <span v-else-if="e.session.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                                     <span v-else class="badge warn">未配置</span>
                                 </template>
-                                <template v-if="!overallLocked">
-                                    <select v-model="assignStaffSelect[e.session.id]" style="padding:2px 6px;font-size:0.8rem;border:1px solid #ccc;border-radius:4px;margin-left:4px">
-                                        <option value="0">＋追加</option>
-                                        <option value="all">全員</option>
-                                        <option v-for="s in availableStaffs(e, 'overall')" :key="s.id" :value="s.id">{{ s.name }}</option>
-                                    </select>
-                                    <button v-if="assignStaffSelect[e.session.id] && assignStaffSelect[e.session.id] !== '0'" class="btn btn-sm" @click="addAssignmentOrAll(e.session.id)" style="padding:2px 8px">追加</button>
-                                </template>
+                                <AssignStaffPicker v-if="!overallLocked" :entry="e" role="overall" allow-all />
                             </div>
                         </td>
                     </tr>
@@ -135,91 +125,20 @@
 
 <script setup lang="ts">
 import { useStore } from '../store'
+import TimeRange from '../components/TimeRange.vue'
+import PersonChip from '../components/PersonChip.vue'
+import StaffFilterSelect from '../components/StaffFilterSelect.vue'
+import AssignStaffPicker from '../components/AssignStaffPicker.vue'
+import SkeletonBlock from '../components/SkeletonBlock.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const {
-    _enterTab, tab, sidebarOpen, rooms,
-    selectableRooms, overallRoomId, sessions, staffs,
-    schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,
-    scheduleMsgError, sessPhotoPreview, sessPhoto, roomForm,
-    sessForm, staffForm, roleDropdownOpen, prefForms,
-    availForms, ltTalks, venueMaps, venueMapForm,
-    venueMapPreview, venueMapInput, mapModal, switchTab,
-    catLabel, fmt, fmtShort, sortedPrefs,
-    autoSetEndTime, cancelEditRoom, editRoom, submitRoom,
-    deleteRoom, onVenueMapChange, cancelEditVenueMap, editVenueMap,
-    submitVenueMap, deleteVenueMap, sessDetailSession, sessDetailEntry,
-    sessDetailLocked, toggleSessionDetail, toggleSessDetailLock, gridMenu,
-    showGridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
-    isMultiSpeakerCat, onPhotoChange, onPhotoPaste, onLTTalkPhoto,
-    autoSetLTEndTime, toggleRepresentative, cancelEditSession, editSession,
-    submitSession, deleteSession, addLTTalk, calcStaffMsg,
-    calcStaffSummary, calcRequiredStaff, newStaffAvails, newAvailForm,
-    addNewStaffAvail, newStaffPrefs, newPrefForm, addNewStaffPref,
-    sessionTitle, sessionLabel, staffAssignCount, editingStaffPrefs,
-    editingStaffAvails, submitStaff, editStaff, cancelEditStaff,
-    deleteStaff, uploadStaffPhoto, deleteStaffPhoto, onNewStaffPhoto,
-    clearNewStaffPhoto, staffPhotoPreview, addPref, removePref,
-    addAvail, removeAvail, sessionSchedule, sessionGroups,
-    groupLocks, groupSessForms, groupStaffFilters, groupScheduleMsgs,
-    groupSelectedSessions, grpDateTabs, grpDates, grpDateFiltered,
-    groupSchedule, filteredGroupSchedule, filteredGroupSessions, groupSessionOpacity,
-    groupSessions, cancelEditGroupSession, editGroupSession, submitGroupSession,
-    deleteGroupSession, onGroupPhotoChange, autoAssignGroup, autoAssignGroupSelected,
-    autoAssignGroupFill, clearGroupAssignments, toggleGroupSessionSelect, toggleGroupSelectAll,
-    grpGridConfig, grpGridRooms, grpGridStyle, grpGridLabels,
-    grpSessionStyle, grpDragSessionStyle, onGrpDragStart, grpSelectedSession,
-    grpSelectedEntry, categories, dynamicCatKeys, categoryLocks,
-    categoryForms, categoryAssignMsgs, categoryStaffFilters, categorySessions,
-    catDates, catKeyDates, catGroupTabs, catGroupFiltered,
-    catTimelineByGroup, filteredCategorySessions, catSessionOpacity, cancelEditCategory,
-    editCategory, submitCategory, deleteCategory, autoAssignCategory,
-    clearCategoryAssignments, catSelectedSessions, autoAssignCategorySelected, autoAssignCategoryFill,
-    toggleCatSessionSelect, toggleCatSelectAll, catGridConfig, catGridRooms,
-    catGridStyle, catGridLabels, catSessionStyle, catDragSessionStyle,
-    onCatDragStart, catSelectedSession, catSelectedEntry, roleOptions,
-    assignStaffSelect, availableStaffs, addAssignment, removeAssignment,
-    setAllStaff, unsetAllStaff, addAssignmentOrAll, selectedSessions,
-    toggleSessionSelect, toggleSelectAll, autoAssign, autoAssignSelected,
-    autoAssignFill, clearAssignments, tlRooms, tlGridStyle,
-    tlLabels, tlSessionStyle, tlBreaks, matrixLocked,
-    drag, dragSessionStyle, onDragStart, dragCursor,
-    exportExcel, exportBackup, backupFileName, ioMsg,
-    ioMsgError, onBackupFileChange, importBackup, connpassTimeline,
-    speakerTemplate, connpassBaseUrl, generateConnpassTimeline, generateSpeakerTemplate,
-    copyToClipboard, resetAllData, resetMsg, resetMsgError,
-    resetPassword, resetPwForm, resetPwMsg, resetPwMsgError,
-    changeResetPassword, appTitle, allowOverlap, travelBufferMin,
-    settingsForm, settingsMsg, saveSettings, pwForm,
-    pwMsg, pwMsgError, changePassword, catSettingForm,
-    catSettingMsg, editCatSetting, cancelCatSetting, saveCatSetting,
-    deleteCatSetting, grpSettingForm, grpSettingMsg, editGrpSetting,
-    cancelGrpSetting, saveGrpSetting, deleteGrpSetting, sessionCatOptions,
-    extraSessionCats, defaultSessionCats, sessCatForm, sessCatMsg,
-    editSessCat, cancelSessCat, saveSessCat, deleteSessCat,
-    customRoles, roleSettingForm, roleSettingMsg, editRoleSetting,
-    cancelRoleSetting, saveRoleSetting, deleteRoleSetting, categoryRoleLinks,
-    catRoleLinkSelect, addCatRoleLink, removeCatRoleLink, groupRoleLinks,
-    grpRoleLinkSelect, addGrpRoleLink, removeGrpRoleLink, staffDetailFilter,
-    staffDetailMatch, matrixStaffFilter, matrixStaffOptions, overallSessions,
+    isTodayDate,
+    loaded, fmtShort, toggleSessionDetail, removeAssignment, unsetAllStaff, allSessionBg,
     overallLocked, overallStaffFilter, overallAssignMsg, overallSelectedSessions,
-    overallDateTab, overallSchedule, overallDateFiltered, filteredOverallSchedule,
-    overallSessionOpacity, overallDates, toggleOverallSessionSelect, toggleOverallSelectAll,
-    autoAssignOverall, autoAssignOverallSelected, clearOverallAssignments, ovGridConfig,
-    ovGridRooms, ovGridStyle, ovGridLabels, ovSessionStyle,
-    ovDragSessionStyle, onOvDragStart, ovManageFiltered, ovManageGridStyle,
-    ovManageGridRooms, ovManageGridLabels, ovManageSessionStyle, ovManageDragSessionStyle,
-    onOvManageDragStart, allGroupTab, allStaffFilter, allSchedule,
-    allTimelineByGroup, allConfig, allColumns, allGridStyle,
-    allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
-    allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
-    cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
-    filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
-    CAT_BG, abSettings, abStatus, abHistory,
-    abMsg, abDownload, loadAbSettings, loadAbStatus,
-    loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,
-    downloadBackupEntry, pubApi, pubHistory, pubMsg,
-    pubMsgError, pubApiUrl, loadPubApiSettings, savePubApiSettings,
-    regenerateApiKey, clearGithubToken, publishSnapshot, loadPubHistory,
-    activateSnapshot, deleteSnapshot, copyApiUrl, copyApiKey,
+    overallDateTab, overallSchedule, overallDateFiltered, overallDates, overallSessionOpacity,
+    ovGridStyle, ovGridRooms, ovGridLabels, ovSessionStyle, ovDragSessionStyle, onOvDragStart,
+    autoAssignOverall, autoAssignOverallSelected, clearOverallAssignments,
+    toggleOverallSelectAll, toggleOverallSessionSelect,
 } = useStore()
 </script>

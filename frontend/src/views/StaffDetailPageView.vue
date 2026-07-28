@@ -85,7 +85,7 @@
                     <h4 style="margin-top:0">活動可能時間</h4>
                     <template v-if="editingStaffAvails.length">
                         <span class="badge avail" v-for="a in editingStaffAvails" :key="a.id" style="display:inline-flex;align-items:center;gap:4px">
-                            {{ fmt(a.start_time) }} - {{ fmtShort(a.end_time) }}
+                            <TimeRange :start="a.start_time" :end="a.end_time" size="sm" inline />
                             <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="removeAvail(staffId, a.id)">x</button>
                         </span>
                     </template>
@@ -109,9 +109,13 @@
                     <span v-if="!editingStaffPrefs.length" style="color:#999;font-size:0.85rem">希望セッション未設定</span>
                     <div class="inline-form" style="margin-top:8px" v-if="prefForms[staffId]">
                         <div class="form-group" style="flex:2">
-                            <select v-model.number="prefForms[staffId].session_id">
-                                <option v-for="ss in sessions" :key="ss.id" :value="ss.id">{{ ss.title }} ({{ fmt(ss.start_time) }})</option>
-                            </select>
+                            <SearchSelect
+                                v-model="prefForms[staffId].session_id"
+                                :options="sessionOptions"
+                                placeholder="セッションを選択"
+                                search-placeholder="タイトルで検索…"
+                                empty-text="セッションがまだ登録されていません"
+                                aria-label="希望セッションを選択" />
                         </div>
                         <div class="form-group" style="flex:1">
                             <input v-model.number="prefForms[staffId].priority" type="number" min="1" placeholder="優先度" style="width:80px">
@@ -136,7 +140,7 @@
                                 <tr v-for="s in assignmentEntry.assigned_sessions" :key="'spa-'+s.id">
                                     <td><span class="badge" :style="CAT_BG[s.category] ? 'background:' + CAT_BG[s.category].background + ';color:' + CAT_BG[s.category].borderColor : ''">{{ catLabel(s.category) }}</span></td>
                                     <td><a href="#" @click.prevent="toggleSessionDetail(s.id)" style="color:#1a73e8;text-decoration:none">{{ s.title }}</a></td>
-                                    <td style="white-space:nowrap">{{ fmt(s.start_time) }} - {{ fmtShort(s.end_time) }}</td>
+                                    <td style="white-space:nowrap"><TimeRange :start="s.start_time" :end="s.end_time" size="sm" inline /></td>
                                     <td>{{ s.room ? s.room.name : '' }}</td>
                                 </tr>
                             </tbody>
@@ -153,9 +157,22 @@
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from '../store'
+import SearchSelect from '../components/SearchSelect.vue'
+import TimeRange from '../components/TimeRange.vue'
+import { mdw, hhmm } from '../utils/datetime'
 
 const route = useRoute()
 const router = useRouter()
+
+// 希望セッションの選択肢。件数が多いので日時でも検索できるようにする。
+const sessionOptions = computed(() =>
+    sessions.value.map(ss => ({
+        value: ss.id,
+        label: ss.title,
+        sublabel: `${mdw(ss.start_time)} ${hhmm(ss.start_time)}`,
+        keywords: `${mdw(ss.start_time)} ${hhmm(ss.start_time)} ${ss.speaker || ''}`,
+    }))
+)
 
 const {
     staffs, staffForm, staffPhotoPreview, roleDropdownOpen, roleOptions,

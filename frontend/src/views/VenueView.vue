@@ -1,7 +1,11 @@
 <template>
         <div class="panel active">
             <h2>会場</h2>
-            <p v-if="!venueMaps.length" style="color:#888;font-size:0.9rem">会場地図が登録されていません。「会場地図」から追加してください。</p>
+            <SkeletonBlock v-if="!loaded.venueMaps" :lines="2" :height="180" label="会場地図を読み込み中" />
+            <EmptyState v-else-if="!venueMaps.length"
+                icon="&#128506;"
+                title="会場地図が登録されていません"
+                hint="「管理」→「会場地図」から画像を追加してください。" />
             <div v-for="m in venueMaps" :key="'vv-'+m.id" style="margin-bottom:24px">
                 <h3 style="margin-bottom:8px">{{ m.title }}</h3>
                 <img :src="m.image" style="max-width:100%;max-height:500px;border-radius:6px;border:1px solid #ddd;cursor:pointer" @click="mapModal=m">
@@ -19,8 +23,11 @@
 
 <script setup lang="ts">
 import { useStore } from '../store'
+import SkeletonBlock from '../components/SkeletonBlock.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const {
+    loaded,
     _enterTab, tab, sidebarOpen, rooms,
     selectableRooms, overallRoomId, sessions, staffs,
     schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,

@@ -1,39 +1,77 @@
 <template>
     <div class="app-layout">
-        <!-- ハンバーガーボタン（モバイル用） -->
-        <button class="hamburger-btn" @click="sidebarOpen = !sidebarOpen" aria-label="メニュー">&#9776;</button>
         <div class="sidebar-overlay" :class="{ open: sidebarOpen }" @click="sidebarOpen = false"></div>
-        <!-- 左サイドバー -->
-        <nav class="sidebar" :class="{ open: sidebarOpen }">
+
+        <!-- 左サイドバー。参加者が使うものを上に、管理系は折りたたむ。 -->
+        <nav class="sidebar" :class="{ open: sidebarOpen }" aria-label="メインメニュー">
             <h1 class="sidebar-title">{{ appTitle }}</h1>
-            <button class="sidebar-item" :class="{ active: tab === 'all-matrix' }" @click="switchTab('all-matrix')">スケジュール</button>
-            <button class="sidebar-item" :class="{ active: tab === 'staff-detail' }" @click="switchTab('staff-detail')">スタッフ別詳細</button>
-            <button class="sidebar-item" :class="{ active: tab === 'venue-view' }" @click="switchTab('venue-view')">会場</button>
-            <div class="sidebar-section">イベント設定</div>
-            <button class="sidebar-item" :class="{ active: tab === 'overall-manage' }" @click="switchTab('overall-manage')">全体スケジュール管理</button>
-            <button v-for="grp in sessionGroups" :key="'nav-gm-'+grp.id" class="sidebar-item" :class="{ active: tab === 'grp-'+grp.id+'-manage' }" @click="switchTab('grp-'+grp.id+'-manage')">{{ grp.label }}管理</button>
-            <button v-for="cat in categories" :key="'nav-m-'+cat.key" class="sidebar-item" :class="{ active: tab === cat.key+'-manage' }" @click="switchTab(cat.key+'-manage')">{{ cat.label }}管理</button>
-            <button class="sidebar-item" :class="{ active: tab === 'staffs' }" @click="switchTab('staffs')">スタッフ管理</button>
-            <button class="sidebar-item" :class="{ active: tab === 'rooms' }" @click="switchTab('rooms')">部屋管理</button>
-            <button class="sidebar-item" :class="{ active: tab === 'venue-maps' }" @click="switchTab('venue-maps')">会場地図</button>
-            <div class="sidebar-section">スタッフ配置</div>
-            <button class="sidebar-item" :class="{ active: tab === 'overall-assign' }" @click="switchTab('overall-assign')">全体スケジュール担当</button>
-            <button v-for="grp in sessionGroups" :key="'nav-ga-'+grp.id" class="sidebar-item" :class="{ active: tab === 'grp-'+grp.id+'-assign' }" @click="switchTab('grp-'+grp.id+'-assign')">{{ grp.label }}担当</button>
-            <button v-for="cat in categories" :key="'nav-a-'+cat.key" class="sidebar-item" :class="{ active: tab === cat.key }" @click="switchTab(cat.key)">{{ cat.label }}担当</button>
-            <button class="sidebar-item" :class="{ active: tab === 'algorithm' }" @click="switchTab('algorithm')">配置アルゴリズム</button>
-            <div class="sidebar-section">システム</div>
-            <button class="sidebar-item" :class="{ active: tab === 'settings' }" @click="switchTab('settings')">設定</button>
-            <button class="sidebar-item" :class="{ active: tab === 'auto-backup' }" @click="switchTab('auto-backup')">バックアップ</button>
-            <button class="sidebar-item" :class="{ active: tab === 'io' }" @click="switchTab('io')">エクスポート</button>
-            <button class="sidebar-item" :class="{ active: tab === 'public-api' }" @click="switchTab('public-api')">公開API</button>
-            <button class="sidebar-item" :class="{ active: tab === 'help' }" @click="switchTab('help')">利用方法</button>
-            <div style="padding:12px 16px;font-size:0.75rem;color:#999;text-align:center;margin-top:auto">version 0.1.14</div>
+
+            <button class="sidebar-item" :class="{ active: tab === 'my' }" @click="switchTab('my')">
+                <span class="nav-ico" aria-hidden="true">&#128100;</span>マイページ
+            </button>
+            <button class="sidebar-item" :class="{ active: tab === 'all-matrix' }" @click="switchTab('all-matrix')">
+                <span class="nav-ico" aria-hidden="true">&#128197;</span>全体スケジュール
+            </button>
+            <button class="sidebar-item" :class="{ active: tab === 'staff-detail' }" @click="switchTab('staff-detail')">
+                <span class="nav-ico" aria-hidden="true">&#128101;</span>スタッフ別詳細
+            </button>
+            <button class="sidebar-item" :class="{ active: tab === 'venue-view' }" @click="switchTab('venue-view')">
+                <span class="nav-ico" aria-hidden="true">&#128506;</span>会場
+            </button>
+            <button class="sidebar-item" :class="{ active: tab === 'help' }" @click="switchTab('help')">
+                <span class="nav-ico" aria-hidden="true">&#10068;</span>利用方法
+            </button>
+
+            <!-- 管理系。全員同じパスワードなので権限で隠せるものではなく、
+                 あくまで日常的に使わないものを畳んでいるだけ。 -->
+            <button class="sidebar-toggle" :class="{ open: adminOpen }" :aria-expanded="adminOpen" @click="toggleAdmin">
+                <span class="caret" aria-hidden="true">&#9654;</span>管理
+            </button>
+            <div v-show="adminOpen" class="sidebar-sub">
+                <div class="sidebar-section">イベント設定</div>
+                <button class="sidebar-item" :class="{ active: tab === 'overall-manage' }" @click="switchTab('overall-manage')">全体スケジュール管理</button>
+                <button v-for="grp in sessionGroups" :key="'nav-gm-'+grp.id" class="sidebar-item" :class="{ active: tab === 'grp-'+grp.id+'-manage' }" @click="switchTab('grp-'+grp.id+'-manage')">{{ grp.label }}管理</button>
+                <button v-for="cat in categories" :key="'nav-m-'+cat.key" class="sidebar-item" :class="{ active: tab === cat.key+'-manage' }" @click="switchTab(cat.key+'-manage')">{{ cat.label }}管理</button>
+                <button class="sidebar-item" :class="{ active: tab === 'staffs' }" @click="switchTab('staffs')">スタッフ管理</button>
+                <button class="sidebar-item" :class="{ active: tab === 'rooms' }" @click="switchTab('rooms')">部屋管理</button>
+                <button class="sidebar-item" :class="{ active: tab === 'venue-maps' }" @click="switchTab('venue-maps')">会場地図</button>
+
+                <div class="sidebar-section">スタッフ配置</div>
+                <button class="sidebar-item" :class="{ active: tab === 'overall-assign' }" @click="switchTab('overall-assign')">全体スケジュール担当</button>
+                <button v-for="grp in sessionGroups" :key="'nav-ga-'+grp.id" class="sidebar-item" :class="{ active: tab === 'grp-'+grp.id+'-assign' }" @click="switchTab('grp-'+grp.id+'-assign')">{{ grp.label }}担当</button>
+                <button v-for="cat in categories" :key="'nav-a-'+cat.key" class="sidebar-item" :class="{ active: tab === cat.key }" @click="switchTab(cat.key)">{{ cat.label }}担当</button>
+                <button class="sidebar-item" :class="{ active: tab === 'algorithm' }" @click="switchTab('algorithm')">配置アルゴリズム</button>
+
+                <div class="sidebar-section">システム</div>
+                <button class="sidebar-item" :class="{ active: tab === 'settings' }" @click="switchTab('settings')">設定</button>
+                <button class="sidebar-item" :class="{ active: tab === 'auto-backup' }" @click="switchTab('auto-backup')">バックアップ</button>
+                <button class="sidebar-item" :class="{ active: tab === 'io' }" @click="switchTab('io')">エクスポート</button>
+                <button class="sidebar-item" :class="{ active: tab === 'public-api' }" @click="switchTab('public-api')">公開API</button>
+            </div>
+
+            <div class="sidebar-version">version 0.1.14</div>
         </nav>
+
         <!-- メインコンテンツ -->
         <main class="main-content" @click="roleDropdownOpen = false">
+            <!-- モバイル用アプリバー。sticky なので本文と重ならない。 -->
+            <div class="app-bar">
+                <div class="app-bar-inner">
+                    <button class="hamburger-btn" @click.stop="sidebarOpen = !sidebarOpen" aria-label="メニューを開く">&#9776;</button>
+                    <span class="app-bar-title">{{ appTitle }}</span>
+                    <!-- ここは「自分」を表すアイコン。他の人を閲覧中でも変わらない
+                         (閲覧対象はマイページ本文側の表示が担当する)。 -->
+                    <button v-if="me" class="app-bar-me" @click.stop="switchTab('my')" :aria-label="`マイページ: ${me.name}`">
+                        <AvatarIcon :name="me.name" :src="me.photo" :size="28" />
+                    </button>
+                </div>
+            </div>
             <router-view />
         </main>
     </div>
+
+    <!-- 初回アクセス時の本人選択 -->
+    <IdentityGate v-if="needsIdentity" />
 
     <div v-if="gridMenu.show" style="position:fixed;inset:0;z-index:150" @click="gridMenu.show=false">
         <div :style="{position:'fixed', left: gridMenu.x+'px', top: gridMenu.y+'px', background:'#fff', borderRadius:'8px', boxShadow:'0 4px 24px rgba(0,0,0,0.18)', padding:'4px 0', minWidth:'120px', zIndex:151}"
@@ -45,11 +83,12 @@
         </div>
     </div>
 
-    <div v-if="sessDetailSession" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center" @click.self="sessDetailSession=null">
-        <div style="background:#fff;border-radius:12px;padding:28px;max-width:640px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start">
-                <h3 style="margin:0 0 16px 0;font-size:1.3rem">{{ sessDetailSession.title }}</h3>
-                <button @click="sessDetailSession=null" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#666;padding:0 4px">&#10005;</button>
+    <!-- セッション詳細 -->
+    <div v-if="sessDetailSession" class="sd-overlay" @click.self="sessDetailSession=null">
+        <div class="sd-panel">
+            <div class="sd-head">
+                <h3 class="sd-title">{{ sessDetailSession.title }}</h3>
+                <button class="sd-close" @click="sessDetailSession=null" aria-label="閉じる">&#10005;</button>
             </div>
 
             <!-- 登壇者情報 -->
@@ -61,26 +100,24 @@
                     <strong style="font-size:0.9rem;color:#555">{{ sessDetailSession.category === 'panel' ? 'パネリスト一覧' : 'LT登壇者一覧' }}</strong>
                     <div v-for="(t, idx) in sessDetailSession.lt_talks" :key="t.id" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0f0f0">
                         <span style="font-weight:700;color:#1a73e8;min-width:24px">{{ Number(idx) + 1 }}.</span>
-                        <img v-if="t.speaker_photo" :src="t.speaker_photo" :alt="t.speaker" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0">
-                        <div v-else style="width:48px;height:48px;border-radius:50%;background:#1a73e8;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1rem;flex-shrink:0">{{ t.speaker.charAt(0) }}</div>
+                        <AvatarIcon :name="t.speaker" :src="t.speaker_photo" :size="48" />
                         <div>
                             <strong>{{ t.speaker }}</strong>
                             <span v-if="t.speaker_kana" style="color:#888;font-size:0.8rem;margin-left:4px">({{ t.speaker_kana }})</span>
                             <span v-if="t.is_representative" class="badge" style="background:#ff9800;color:#fff;font-size:0.7rem;margin-left:6px;padding:1px 6px">{{ sessDetailSession.category === 'panel' ? 'モデレーター' : '司会者' }}</span>
                             <span v-if="t.speaker_org || t.speaker_title" style="color:#666;font-size:0.85rem"> / {{ [t.speaker_title, t.speaker_org].filter(Boolean).join(' / ') }}</span>
                             <br><span style="color:#555;font-size:0.85rem">{{ t.title }}</span>
-                            <br v-if="t.start_time"><span v-if="t.start_time" style="color:#888;font-size:0.8rem">{{ fmt(t.start_time) }} - {{ fmtShort(t.end_time) }}</span>
+                            <div v-if="t.start_time" style="margin-top:2px">
+                                <TimeRange :start="t.start_time" :end="t.end_time" size="sm" inline />
+                            </div>
                         </div>
                     </div>
                 </div>
             </template>
             <template v-else-if="sessDetailSession.category !== 'overall'">
-                <div style="display:flex;align-items:flex-start;gap:20px;margin-bottom:16px;padding:12px;background:#f8f9fa;border-radius:8px">
-                    <img v-if="sessDetailSession.speaker_photo" :src="sessDetailSession.speaker_photo" :alt="sessDetailSession.speaker"
-                         style="width:180px;height:180px;border-radius:8px;object-fit:cover;border:2px solid #e0e0e0;flex-shrink:0">
-                    <div v-else style="width:180px;height:180px;border-radius:8px;background:#1a73e8;display:flex;align-items:center;justify-content:center;font-size:3rem;color:#fff;font-weight:700;flex-shrink:0">
-                        {{ sessDetailSession.speaker.charAt(0) }}
-                    </div>
+                <div class="sd-speaker">
+                    <img v-if="sessDetailSession.speaker_photo" :src="sessDetailSession.speaker_photo" :alt="sessDetailSession.speaker" class="sd-speaker-photo">
+                    <AvatarIcon v-else :name="sessDetailSession.speaker" :size="120" />
                     <div style="flex:1;min-width:0">
                         <div style="font-size:1.3rem;font-weight:700">{{ sessDetailSession.speaker }}</div>
                         <div v-if="sessDetailSession.speaker_kana" style="font-size:0.85rem;color:#888;margin-top:2px">{{ sessDetailSession.speaker_kana }}</div>
@@ -93,18 +130,18 @@
             </template>
 
             <!-- セッション情報 -->
-            <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;font-size:0.9rem">
-                <div style="display:flex;align-items:center;gap:4px;color:#555">
-                    <strong>時間:</strong> {{ fmt(sessDetailSession.start_time) }} - {{ fmt(sessDetailSession.end_time) }}
+            <div class="sd-facts">
+                <div class="sd-fact">
+                    <TimeRange :start="sessDetailSession.start_time" :end="sessDetailSession.end_time" size="md" show-duration />
                 </div>
-                <div style="display:flex;align-items:center;gap:4px;color:#555">
-                    <strong>部屋:</strong> {{ sessDetailSession.room ? sessDetailSession.room.name : '' }}
+                <div class="sd-fact-text">
+                    <div v-if="sessDetailSession.room"><strong>部屋:</strong> {{ sessDetailSession.room.name }}</div>
+                    <div>
+                        <span class="badge">{{ catLabel(sessDetailSession.category) }}</span>
+                        <span v-if="sessDetailSession.english_required" class="badge" style="background:#e0f2f1;color:#00695c;margin-left:4px">EN</span>
+                    </div>
+                    <div><strong>必要人数:</strong> {{ sessDetailSession.required_staff === -1 ? '全員' : sessDetailSession.required_staff + '名' }}</div>
                 </div>
-                <div>
-                    <span class="badge">{{ catLabel(sessDetailSession.category) }}</span>
-                    <span v-if="sessDetailSession.english_required" class="badge" style="background:#e0f2f1;color:#00695c;margin-left:4px">EN</span>
-                </div>
-                <div style="color:#555"><strong>必要人数:</strong> {{ sessDetailSession.required_staff === -1 ? '全員' : sessDetailSession.required_staff + '名' }}</div>
             </div>
 
             <div v-if="sessDetailSession.description" style="margin-bottom:12px;padding:12px;background:#f8f9fa;border-radius:6px">
@@ -122,22 +159,15 @@
                 <strong style="font-size:0.9rem">担当スタッフ</strong>
                 <span v-if="sessDetailSession.required_staff === -1" class="badge" style="margin-left:8px;background:#e65100;color:#fff;font-weight:600">全員</span>
                 <span v-else style="font-size:0.8rem;color:#666;margin-left:8px">(必要: {{ sessDetailSession.required_staff }}名)</span>
-                <template v-if="tab !== 'all-matrix'">
+                <template v-if="tab !== 'all-matrix' && tab !== 'my'">
                     <button v-if="sessDetailLocked" @click="toggleSessDetailLock" class="badge" style="margin-left:8px;background:#e8eaed;color:#5f6368;cursor:pointer;border:none" title="クリックでロック解除">&#128274; ロック中</button>
                     <button v-else @click="toggleSessDetailLock" class="badge" style="margin-left:8px;background:#e8f5e9;color:#2e7d32;cursor:pointer;border:none" title="クリックでロック">&#128275; 編集可能</button>
                 </template>
                 <!-- ロック中 -->
-                <div v-if="sessDetailLocked" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:12px">
+                <div v-if="sessDetailLocked" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
                     <span v-if="sessDetailSession.required_staff === -1" class="badge" style="background:#e65100;color:#fff;font-size:0.9rem">全員</span>
                     <template v-else-if="sessDetailEntry.assigned_staff.length">
-                        <div v-for="a in sessDetailEntry.assigned_staff" :key="a.assignment_id" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
-                            <img v-if="a.staff.photo" :src="a.staff.photo" :alt="a.staff.name" style="width:40px;height:40px;border-radius:50%;object-fit:cover">
-                            <div v-else style="width:40px;height:40px;border-radius:50%;background:#1a73e8;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:0.9rem;flex-shrink:0">{{ a.staff.name.charAt(0) }}</div>
-                            <div>
-                                <div style="font-weight:600;font-size:0.9rem">{{ a.staff.name }}</div>
-                                <div v-if="a.staff.role && a.staff.role.length" style="font-size:0.75rem;color:#888">{{ a.staff.role.map(r => catLabel(r)).join(', ') }}</div>
-                            </div>
-                        </div>
+                        <PersonChip v-for="a in sessDetailEntry.assigned_staff" :key="a.assignment_id" :staff="a.staff" size="md" />
                     </template>
                     <span v-else-if="sessDetailSession.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                     <span v-else class="badge warn">未配置</span>
@@ -149,20 +179,27 @@
                         <button @click="unsetAllStaff(sessDetailSession.id)" style="background:none;border:none;color:#fff;cursor:pointer;font-size:0.9rem;padding:0 2px" title="解除">&#10005;</button>
                     </span>
                     <template v-else-if="sessDetailEntry.assigned_staff.length">
-                        <span class="badge" v-for="a in sessDetailEntry.assigned_staff" :key="a.assignment_id" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px">
-                            {{ a.staff.name }}
-                            <button @click="removeAssignment(a.assignment_id)" style="background:none;border:none;color:#d93025;cursor:pointer;font-size:0.9rem;padding:0 2px" title="削除">&#10005;</button>
-                        </span>
+                        <PersonChip v-for="a in sessDetailEntry.assigned_staff" :key="a.assignment_id" :staff="a.staff" size="md">
+                            <button @click.stop="removeAssignment(a.assignment_id)" class="chip-x" title="削除">&#10005;</button>
+                        </PersonChip>
                     </template>
                     <span v-else-if="sessDetailSession.required_staff === 0" class="badge" style="background:#e8eaed;color:#5f6368">配置不要</span>
                     <span v-else class="badge warn">未配置</span>
                 </div>
                 <div v-if="!sessDetailLocked" style="margin-top:8px;display:flex;align-items:center;gap:6px">
-                    <select v-model="assignStaffSelect[sessDetailSession.id]" style="padding:4px 8px;font-size:0.85rem;border:1px solid #ccc;border-radius:4px;flex:1;max-width:240px">
-                        <option value="0">＋ スタッフ追加</option>
-                        <option v-if="sessDetailSession.category === 'overall'" value="all">全員</option>
-                        <option v-for="s in availableStaffs(sessDetailEntry)" :key="s.id" :value="s.id">{{ s.name }}</option>
-                    </select>
+                    <SearchSelect
+                        v-model="assignStaffSelect[sessDetailSession.id]"
+                        :options="assignOptions"
+                        placeholder="＋ スタッフを追加"
+                        search-placeholder="名前で検索…"
+                        empty-text="追加できるスタッフがいません"
+                        aria-label="担当スタッフを追加"
+                        style="flex:1;max-width:260px">
+                        <template #option="{ option }">
+                            <AvatarIcon v-if="option.data" :name="option.label" :src="option.data.photo" :size="24" />
+                            <span>{{ option.label }}</span>
+                        </template>
+                    </SearchSelect>
                     <button v-if="assignStaffSelect[sessDetailSession.id] && assignStaffSelect[sessDetailSession.id] !== '0'" class="btn btn-sm" @click="addAssignmentOrAll(sessDetailSession.id)" style="padding:4px 12px">追加</button>
                 </div>
             </div>
@@ -171,10 +208,16 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useStore, runInitialLoad, enterTab } from './store'
+import { useMe } from './composables/useMe'
 import { routeToTab } from './router'
+import AvatarIcon from './components/AvatarIcon.vue'
+import PersonChip from './components/PersonChip.vue'
+import TimeRange from './components/TimeRange.vue'
+import SearchSelect from './components/SearchSelect.vue'
+import IdentityGate from './components/IdentityGate.vue'
 
 const route = useRoute()
 
@@ -186,89 +229,94 @@ onMounted(async () => {
 })
 
 const {
-    _enterTab, tab, sidebarOpen, rooms,
-    selectableRooms, overallRoomId, sessions, staffs,
-    schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,
-    scheduleMsgError, sessPhotoPreview, sessPhoto, roomForm,
-    sessForm, staffForm, roleDropdownOpen, prefForms,
-    availForms, ltTalks, venueMaps, venueMapForm,
-    venueMapPreview, venueMapInput, mapModal, switchTab,
-    catLabel, fmt, fmtShort, sortedPrefs,
-    autoSetEndTime, cancelEditRoom, editRoom, submitRoom,
-    deleteRoom, onVenueMapChange, cancelEditVenueMap, editVenueMap,
-    submitVenueMap, deleteVenueMap, sessDetailSession, sessDetailEntry,
-    sessDetailLocked, toggleSessionDetail, toggleSessDetailLock, gridMenu,
-    showGridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
-    isMultiSpeakerCat, onPhotoChange, onPhotoPaste, onLTTalkPhoto,
-    autoSetLTEndTime, toggleRepresentative, cancelEditSession, editSession,
-    submitSession, deleteSession, addLTTalk, calcStaffMsg,
-    calcStaffSummary, calcRequiredStaff, newStaffAvails, newAvailForm,
-    addNewStaffAvail, newStaffPrefs, newPrefForm, addNewStaffPref,
-    sessionTitle, sessionLabel, staffAssignCount, editingStaffPrefs,
-    editingStaffAvails, submitStaff, editStaff, cancelEditStaff,
-    deleteStaff, uploadStaffPhoto, deleteStaffPhoto, onNewStaffPhoto,
-    clearNewStaffPhoto, staffPhotoPreview, addPref, removePref,
-    addAvail, removeAvail, sessionSchedule, sessionGroups,
-    groupLocks, groupSessForms, groupStaffFilters, groupScheduleMsgs,
-    groupSelectedSessions, grpDateTabs, grpDates, grpDateFiltered,
-    groupSchedule, filteredGroupSchedule, filteredGroupSessions, groupSessionOpacity,
-    groupSessions, cancelEditGroupSession, editGroupSession, submitGroupSession,
-    deleteGroupSession, onGroupPhotoChange, autoAssignGroup, autoAssignGroupSelected,
-    autoAssignGroupFill, clearGroupAssignments, toggleGroupSessionSelect, toggleGroupSelectAll,
-    grpGridConfig, grpGridRooms, grpGridStyle, grpGridLabels,
-    grpSessionStyle, grpDragSessionStyle, onGrpDragStart, grpSelectedSession,
-    grpSelectedEntry, categories, dynamicCatKeys, categoryLocks,
-    categoryForms, categoryAssignMsgs, categoryStaffFilters, categorySessions,
-    catDates, catKeyDates, catGroupTabs, catGroupFiltered,
-    catTimelineByGroup, filteredCategorySessions, catSessionOpacity, cancelEditCategory,
-    editCategory, submitCategory, deleteCategory, autoAssignCategory,
-    clearCategoryAssignments, catSelectedSessions, autoAssignCategorySelected, autoAssignCategoryFill,
-    toggleCatSessionSelect, toggleCatSelectAll, catGridConfig, catGridRooms,
-    catGridStyle, catGridLabels, catSessionStyle, catDragSessionStyle,
-    onCatDragStart, catSelectedSession, catSelectedEntry, roleOptions,
-    assignStaffSelect, availableStaffs, addAssignment, removeAssignment,
-    setAllStaff, unsetAllStaff, addAssignmentOrAll, selectedSessions,
-    toggleSessionSelect, toggleSelectAll, autoAssign, autoAssignSelected,
-    autoAssignFill, clearAssignments, tlRooms, tlGridStyle,
-    tlLabels, tlSessionStyle, tlBreaks, matrixLocked,
-    drag, dragSessionStyle, onDragStart, dragCursor,
-    exportExcel, exportBackup, backupFileName, ioMsg,
-    ioMsgError, onBackupFileChange, importBackup, connpassTimeline,
-    speakerTemplate, connpassBaseUrl, generateConnpassTimeline, generateSpeakerTemplate,
-    copyToClipboard, resetAllData, resetMsg, resetMsgError,
-    resetPassword, resetPwForm, resetPwMsg, resetPwMsgError,
-    changeResetPassword, appTitle, allowOverlap, travelBufferMin,
-    settingsForm, settingsMsg, saveSettings, pwForm,
-    pwMsg, pwMsgError, changePassword, catSettingForm,
-    catSettingMsg, editCatSetting, cancelCatSetting, saveCatSetting,
-    deleteCatSetting, grpSettingForm, grpSettingMsg, editGrpSetting,
-    cancelGrpSetting, saveGrpSetting, deleteGrpSetting, sessionCatOptions,
-    extraSessionCats, defaultSessionCats, sessCatForm, sessCatMsg,
-    editSessCat, cancelSessCat, saveSessCat, deleteSessCat,
-    customRoles, roleSettingForm, roleSettingMsg, editRoleSetting,
-    cancelRoleSetting, saveRoleSetting, deleteRoleSetting, categoryRoleLinks,
-    catRoleLinkSelect, addCatRoleLink, removeCatRoleLink, groupRoleLinks,
-    grpRoleLinkSelect, addGrpRoleLink, removeGrpRoleLink, staffDetailFilter,
-    staffDetailMatch, matrixStaffFilter, matrixStaffOptions, overallSessions,
-    overallLocked, overallStaffFilter, overallAssignMsg, overallSelectedSessions,
-    overallDateTab, overallSchedule, overallDateFiltered, filteredOverallSchedule,
-    overallSessionOpacity, overallDates, toggleOverallSessionSelect, toggleOverallSelectAll,
-    autoAssignOverall, autoAssignOverallSelected, clearOverallAssignments, ovGridConfig,
-    ovGridRooms, ovGridStyle, ovGridLabels, ovSessionStyle,
-    ovDragSessionStyle, onOvDragStart, ovManageFiltered, ovManageGridStyle,
-    ovManageGridRooms, ovManageGridLabels, ovManageSessionStyle, ovManageDragSessionStyle,
-    onOvManageDragStart, allGroupTab, allStaffFilter, allSchedule,
-    allTimelineByGroup, allConfig, allColumns, allGridStyle,
-    allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
-    allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
-    cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
-    filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
-    CAT_BG, abSettings, abStatus, abHistory,
-    abMsg, abDownload, loadAbSettings, loadAbStatus,
-    loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,
-    downloadBackupEntry, pubApi, pubHistory, pubMsg,
-    pubMsgError, pubApiUrl, loadPubApiSettings, savePubApiSettings,
-    regenerateApiKey, clearGithubToken, publishSnapshot, loadPubHistory,
-    activateSnapshot, deleteSnapshot, copyApiUrl, copyApiKey,
+    tab, sidebarOpen, appTitle, sessionGroups, categories, switchTab,
+    roleDropdownOpen, catLabel, dynamicCatKeys, isMultiSpeakerCat,
+    gridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
+    sessDetailSession, sessDetailEntry, sessDetailLocked, toggleSessDetailLock,
+    assignStaffSelect, availableStaffs, addAssignmentOrAll, removeAssignment, unsetAllStaff,
 } = useStore()
+
+const { me, needsIdentity } = useMe()
+
+// 管理セクションの開閉。日常的に使わないので既定は閉じる。
+const ADMIN_KEY = 'es.adminNavOpen'
+const adminOpen = ref(readAdminOpen())
+function readAdminOpen(): boolean {
+    try { return localStorage.getItem(ADMIN_KEY) === '1' } catch { return false }
+}
+function toggleAdmin() {
+    adminOpen.value = !adminOpen.value
+    try { localStorage.setItem(ADMIN_KEY, adminOpen.value ? '1' : '0') } catch { /* 保存できなくても動く */ }
+}
+
+// 詳細モーダルの「スタッフ追加」候補。全体セッションだけ「全員」を選べる。
+const assignOptions = computed(() => {
+    const entry = sessDetailEntry.value
+    if (!entry) return []
+    const opts: { value: string | number; label: string; keywords?: string; data?: any }[] = []
+    if (sessDetailSession.value?.category === 'overall') {
+        opts.push({ value: 'all', label: '全員を配置' })
+    }
+    for (const s of availableStaffs(entry)) {
+        opts.push({ value: s.id, label: s.name, keywords: s.slack_name || '', data: s })
+    }
+    return opts
+})
 </script>
+
+<style scoped>
+.sidebar-version {
+    padding: 12px 16px; font-size: 0.75rem; color: #94a3b8;
+    text-align: center; margin-top: auto;
+}
+.app-bar-me {
+    flex-shrink: 0; background: none; border: none; cursor: pointer;
+    padding: 0; display: flex; align-items: center;
+    width: var(--tap); height: var(--tap); justify-content: center;
+}
+
+/* --- セッション詳細モーダル --- */
+.sd-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: var(--z-overlay);
+    display: flex; align-items: center; justify-content: center;
+    padding: var(--sp-3);
+    padding-top: calc(var(--sp-3) + var(--safe-top));
+    padding-bottom: calc(var(--sp-3) + var(--safe-bottom));
+}
+.sd-panel {
+    background: #fff; border-radius: var(--r-lg);
+    padding: var(--sp-6); max-width: 640px; width: 100%;
+    max-height: 100%; overflow-y: auto; overscroll-behavior: contain;
+    box-shadow: var(--sh-4);
+}
+.sd-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-2); }
+.sd-title { margin: 0 0 var(--sp-4); font-size: var(--fs-2xl); overflow-wrap: anywhere; }
+.sd-close {
+    background: none; border: none; font-size: 1.4rem; cursor: pointer; color: #666;
+    width: var(--tap); height: var(--tap); flex-shrink: 0;
+}
+
+.sd-speaker {
+    display: flex; align-items: flex-start; gap: var(--sp-5);
+    margin-bottom: var(--sp-4); padding: var(--sp-3);
+    background: var(--c-surface-2); border-radius: var(--r-md);
+}
+.sd-speaker-photo {
+    width: 120px; height: 120px; border-radius: var(--r-md); object-fit: cover;
+    border: 2px solid var(--c-border); flex-shrink: 0;
+}
+
+.sd-facts {
+    display: flex; align-items: center; gap: var(--sp-4);
+    margin-bottom: var(--sp-4); padding: var(--sp-3);
+    background: var(--c-surface-2); border-radius: var(--r-md);
+}
+.sd-fact { flex-shrink: 0; padding-right: var(--sp-4); border-right: 1px solid var(--c-border); }
+.sd-fact-text { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-md); color: #555; min-width: 0; }
+
+@media (max-width: 480px) {
+    .sd-panel { padding: var(--sp-4); }
+    .sd-speaker { flex-direction: column; align-items: center; text-align: center; }
+    .sd-speaker-photo { width: 96px; height: 96px; }
+}
+</style>

@@ -136,7 +136,11 @@
             </template>
 
             <h3>登録済み一覧</h3>
-            <p v-if="!groupSessions(grp.id).length" style="color:#666">セッションがまだ登録されていません。</p>
+            <SkeletonBlock v-if="!loaded.sessions" :lines="3" :height="56" label="セッションを読み込み中" />
+            <EmptyState v-else-if="!groupSessions(grp.id).length"
+                icon="&#128197;"
+                title="セッションがまだ登録されていません"
+                hint="上のフォームから追加してください。" />
             <table v-else>
                 <thead><tr><th>ID</th><th>登壇者</th><th>タイトル</th><th>時間</th><th>部屋</th><th>カテゴリ</th><th>必要人数</th><th>英語</th><th></th></tr></thead>
                 <tbody>
@@ -175,6 +179,8 @@
 
 <script setup lang="ts">
 import { useStore } from '../store'
+import SkeletonBlock from '../components/SkeletonBlock.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
@@ -189,6 +195,7 @@ function pickFile(e: MouseEvent) {
 }
 
 const {
+    loaded,
     _enterTab, tab, sidebarOpen, rooms,
     selectableRooms, overallRoomId, sessions, staffs,
     schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,

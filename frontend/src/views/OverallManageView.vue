@@ -49,7 +49,11 @@
 
             <!-- 全体スケジュール一覧 -->
             <h3>登録済み一覧</h3>
-            <p v-if="!overallSessions.length" style="color:#666">全体スケジュールがまだ登録されていません。</p>
+            <SkeletonBlock v-if="!loaded.sessions" :lines="3" :height="56" label="全体スケジュールを読み込み中" />
+            <EmptyState v-else-if="!overallSessions.length"
+                icon="&#128197;"
+                title="全体スケジュールがまだ登録されていません"
+                hint="上のフォームから追加してください。" />
             <table v-else>
                 <thead><tr><th>タイトル</th><th>時間</th><th>備考</th><th>操作</th></tr></thead>
                 <tbody>
@@ -69,8 +73,11 @@
 
 <script setup lang="ts">
 import { useStore } from '../store'
+import SkeletonBlock from '../components/SkeletonBlock.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const {
+    loaded,
     _enterTab, tab, sidebarOpen, rooms,
     selectableRooms, overallRoomId, sessions, staffs,
     schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,

@@ -107,6 +107,8 @@ function _createStore() {
                 if (!(c.key in catSelectedSessions)) catSelectedSessions[c.key] = new Set<any>();
             });
             if (!catSettingForm.editId) catSettingForm.order = nextCatOrder();
+            loaded.categories = true;
+            _initDateTabs();
         }
         const dynamicCatKeys = computed(() => categories.value.map(c => c.key));
         const CATEGORY_LABELS = computed(() => {
@@ -152,7 +154,8 @@ function _createStore() {
                 if (!(g.id in groupSelectedSessions)) groupSelectedSessions[g.id] = new Set<any>();
             });
             if (!grpSettingForm.editId) grpSettingForm.order = nextGrpOrder();
-            // allGroupTabのデフォルトはloadSessions後に設定
+            loaded.sessionGroups = true;
+            _initDateTabs();
         }
 
         const roomForm = reactive<any>({ editId: null, name: '', capacity: null, floor: 1 });
@@ -242,10 +245,27 @@ function _createStore() {
         }
 
         // --- API ---
-        async function loadRooms() { rooms.value = await (await fetch(API + '/api/rooms/')).json(); }
-        async function loadVenueMaps() { venueMaps.value = await (await fetch(API + '/api/venue-maps/')).json(); }
+        // 各データが「一度でも取得できたか」。まだ取れていないのに
+        // 「登録されていません」を出すと未登録と誤読されるため、
+        // 画面側はこのフラグを見てスケルトンと空表示を出し分ける。
+        const loaded = reactive({
+            rooms: false, venueMaps: false, sessions: false, staffs: false,
+            schedule: false, staffAssignments: false, categories: false,
+            sessionGroups: false, settings: false,
+        });
+
+        async function loadRooms() {
+            rooms.value = await (await fetch(API + '/api/rooms/')).json();
+            loaded.rooms = true;
+        }
+        async function loadVenueMaps() {
+            venueMaps.value = await (await fetch(API + '/api/venue-maps/')).json();
+            loaded.venueMaps = true;
+        }
         async function loadSessions() {
             sessions.value = await (await fetch(API + '/api/sessions/')).json();
+            loaded.sessions = true;
+            _initDateTabs();
         }
         async function loadStaffs() {
             const data = await (await fetch(API + '/api/staffs/')).json();
@@ -254,6 +274,7 @@ function _createStore() {
                 if (!prefForms[s.id]) prefForms[s.id] = { session_id: null, priority: 1 };
                 if (!availForms[s.id]) availForms[s.id] = { start: '', end: '' };
             });
+            loaded.staffs = true;
         }
         async function loadSchedule() {
             schedule.value = ((await (await fetch(API + '/api/assignments/schedule')).json()).schedule || []);
@@ -262,9 +283,38 @@ function _createStore() {
                 const entry = schedule.value.find(e => e.session.id === sessDetailSession.value.id);
                 if (entry) sessDetailSession.value = entry.session;
             }
+            loaded.schedule = true;
         }
         async function loadStaffAssignments() {
             staffAssignments.value = ((await (await fetch(API + '/api/assignments/staff-schedule')).json()).staff_assignments || []);
+            loaded.staffAssignments = true;
+        }
+
+        // --- 日程タブの初期値 ---
+        // 会場に居る人がまず見たいのは「今日」の分。開催期間中は全日程ではなく
+        // 当日を選んだ状態で開く。開催日でなければ従来どおり全日程 (0) のまま。
+        function _todayKey() {
+            const d = new Date();
+            const p = (n: number) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        }
+        function _defaultDateTab(dates) {
+            const t = _todayKey();
+            return dates.includes(t) ? t : 0;
+        }
+        // 日付タブに「今日」の印を付けるための判定 (ビューから使う)
+        function isTodayDate(date) { return date === _todayKey(); }
+        // 一度きり。以降はユーザーの選択 (「全日程」に戻す等) を尊重する。
+        let _dateTabsInitialized = false;
+        function _initDateTabs() {
+            if (_dateTabsInitialized) return;
+            // どれか1つでも未取得だと日付一覧が不完全になる
+            if (!loaded.sessions || !loaded.categories || !loaded.sessionGroups) return;
+            _dateTabsInitialized = true;
+            allGroupTab.value = _defaultDateTab(catDates.value);
+            overallDateTab.value = _defaultDateTab(overallDates());
+            categories.value.forEach(c => { catGroupTabs[c.key] = _defaultDateTab(catKeyDates(c.key)); });
+            sessionGroups.value.forEach(g => { grpDateTabs[g.id] = _defaultDateTab(grpDates(g.id)); });
         }
         // 「全員」overallセッションを全スタッフの担当に含めたスタッフ別詳細
         const CAT_PRIORITY = { overall: 0, session: 1 };
@@ -467,6 +517,7 @@ function _createStore() {
                     try { groupRoleLinks.value = JSON.parse(data.group_role_links) || {}; } catch (e) { groupRoleLinks.value = {}; }
                 }
             } catch (e) { /* ignore */ }
+            loaded.settings = true;
         }
         async function saveSettings() {
             settingsMsg.value = '';
@@ -1051,6 +1102,7 @@ function _createStore() {
         async function _enterTab(name) {
             tab.value = name;
             sidebarOpen.value = false;
+            if (name === 'my') await Promise.all([loadStaffs(), loadSessions(), loadSchedule(), loadStaffAssignments()]);
             if (name === 'rooms') await loadRooms();
             if (name === 'venue-maps') await loadVenueMaps();
             if (name === 'staffs') await Promise.all([loadSessions(), loadStaffs(), loadSchedule()]);
@@ -3225,7 +3277,29 @@ function _createStore() {
             return _hasStaff(entry, allStaffFilter.value) ? 1 : 0.15;
         }
 
-        _initialLoad = (async () => { await loadSessionGroups(); await loadCategories(); loadRooms(); loadStaffs(); loadSessions().then(() => loadSchedule()); loadSettings(); });
+        // 初期ロード。以前は sessionGroups → categories → sessions → schedule が
+        // 直列で、最初の表示までに4往復ぶんの待ちが乗っていた。
+        // これらは互いに依存していないので全て並列で投げる。
+        //
+        // allSettled にしているのは、1本が落ちても他を表示するため。
+        // Promise.all だと 1エンドポイントの500で全画面が空のままになる。
+        // 落ちたものは loaded フラグが false のままなので、画面側は
+        // 「未登録」ではなく読み込み中の見た目を保つ。
+        _initialLoad = (async () => {
+            const results = await Promise.allSettled([
+                loadSessionGroups(),
+                loadCategories(),
+                loadRooms(),
+                loadStaffs(),
+                loadSessions(),
+                loadSchedule(),
+                loadStaffAssignments(),
+                loadSettings(),
+            ]);
+            for (const r of results) {
+                if (r.status === 'rejected') console.error('[初期ロード] 取得に失敗しました', r.reason);
+            }
+        });
 
         // タブ切り替え = ルート遷移。遷移後の afterEach が _enterTab を呼ぶ。
         function switchTab(name) {
@@ -3234,7 +3308,7 @@ function _createStore() {
         }
 
                 return {
-            _enterTab,
+            _enterTab, loaded, isTodayDate,
             tab, sidebarOpen, rooms, selectableRooms, overallRoomId, sessions, staffs, schedule, staffAssignments, staffAssignmentsWithAll,
             scheduleMsg, scheduleMsgError, sessPhotoPreview, sessPhoto,
             roomForm, sessForm, staffForm, roleDropdownOpen, prefForms, availForms, ltTalks,
