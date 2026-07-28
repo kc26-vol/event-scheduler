@@ -1628,6 +1628,15 @@ function _createStore() {
             }
         }
 
+        // スタッフの活動可能時間内にセッションが収まるか (バックエンド is_staff_available と同じ判定)
+        function _isStaffAvailable(staff, sessStart, sessEnd) {
+            const avails = staff.availabilities || [];
+            if (!avails.length) return true; // 活動可能時間が未設定なら制約なし
+            return avails.some(av =>
+                new Date(av.start_time) <= sessStart && new Date(av.end_time) >= sessEnd
+            );
+        }
+
         function availableStaffs(entry, role?) {
             const assignedIds = new Set(entry.assigned_staff.map(a => a.staff.id));
             const cat = entry.session.category;
@@ -1653,6 +1662,8 @@ function _createStore() {
                     const roles = Array.isArray(s.role) ? s.role : ((s.role as any) || '').split(',');
                     if (!roles.some(r => allowed.includes(r))) return false;
                 }
+                // 活動可能時間チェック (必須。自動配置と同じ条件)
+                if (!_isStaffAvailable(s, sessStart, sessEnd)) return false;
                 // 時間重複・別部屋移動時間チェック（重複許可設定時はスキップ）
                 if (!allowOverlap.value) {
                     const busy = staffBusyMap[s.id] || [];
