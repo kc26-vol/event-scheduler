@@ -22,7 +22,8 @@ LOAD_ENV = set -a && . "$(ENV_PATH)" && set +a
 # make sync-settings で Azure に反映するキー。
 # ここに無いキーは .env.prod に書いても反映されない。
 SYNC_KEYS := APP_PASSWORD SESSION_SECRET RESET_PASSWORD DATA_DIR TZ \
-             SCM_DO_BUILD_DURING_DEPLOYMENT WEBSITE_HTTPLOGGING_RETENTION_DAYS
+             SCM_DO_BUILD_DURING_DEPLOYMENT WEBSITE_HTTPLOGGING_RETENTION_DAYS \
+             WEBSITES_ENABLE_APP_SERVICE_STORAGE
 
 # デプロイzipに入れてはいけないもの。zip は .gitignore を見ないので、
 # .gitignore と別にここでも除外する必要がある。
