@@ -49,3 +49,12 @@ variable "app_settings" {
   # 個々のシークレットは呼び出し側の変数 (app_password 等) が sensitive なので、
   # そこから伝播して保護される。
 }
+
+variable "scm_basic_auth_enabled" {
+  description = <<-EOT
+    SCM (Kudu) のベーシック認証。GitHub Actions の発行プロファイルデプロイに必要。
+    OIDC (Workload Identity Federation) へ移行できたら false に戻すこと。
+  EOT
+  type        = bool
+  default     = true
+}

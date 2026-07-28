@@ -13,10 +13,13 @@ resource "azurerm_linux_web_app" "this" {
   client_affinity_enabled       = var.client_affinity_enabled
   public_network_access_enabled = true
 
-  # SCM へのベーシック認証は使わない (AAD トークンのみ)。
-  # provider の既定値は true なので、明示しないと有効化されてしまう。
-  ftp_publish_basic_authentication_enabled       = false
-  webdeploy_publish_basic_authentication_enabled = false
+  # FTP のベーシック認証は使わない。
+  ftp_publish_basic_authentication_enabled = false
+
+  # SCM (Kudu) のベーシック認証は GitHub Actions の発行プロファイルデプロイに
+  # 必要なため有効。OIDC (Workload Identity Federation) へ移行できたら
+  # false に戻すこと。
+  webdeploy_publish_basic_authentication_enabled = var.scm_basic_auth_enabled
 
   site_config {
     always_on           = var.always_on
