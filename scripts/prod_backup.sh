@@ -33,18 +33,44 @@ if [ "$CODE" != "200" ]; then
   exit 1
 fi
 
-# バックアップzipの生成は F1 プランだと数分かかる
-echo "[backup] バックアップを取得中 (数分かかります)..."
-CODE="$(curl -s -b "$JAR" --max-time 900 -o "$ZIP" -w '%{http_code}' "${URL}/api/export/backup")"
-if [ "$CODE" != "200" ]; then
-  echo "[backup] ERROR: バックアップ取得に失敗しました (HTTP $CODE)" >&2
-  rm -f "$ZIP"
-  exit 1
-fi
+# バックアップzipの生成は F1 プランだと数分かかる。
+# 応答は 90MB 前後の chunked ストリームで、途中で切れても
+# ヘッダは既に返っているため HTTP 200 のまま壊れたzipになることがある。
+# そのため HTTP ステータスだけでなく curl の終了コードと zip の中身も見る。
+fetch_backup() {
+  local code rc
+  set +e
+  code="$(curl -s -b "$JAR" --max-time 900 -o "$ZIP" -w '%{http_code}' "${URL}/api/export/backup")"
+  rc=$?
+  set -e
+  if [ "$rc" != "0" ]; then
+    echo "[backup]   転送が中断しました (curl exit $rc)" >&2
+    return 1
+  fi
+  if [ "$code" != "200" ]; then
+    echo "[backup]   取得に失敗しました (HTTP $code)" >&2
+    return 1
+  fi
+  if ! unzip -l "$ZIP" >/dev/null 2>&1; then
+    echo "[backup]   zipが壊れています (転送が途中で切れた可能性)" >&2
+    return 1
+  fi
+  if ! unzip -l "$ZIP" | grep -q 'data.json'; then
+    echo "[backup]   data.json を含まない応答でした" >&2
+    return 1
+  fi
+  return 0
+}
 
-# zipが壊れていないか、data.json が入っているかを検証する
-if ! unzip -l "$ZIP" | grep -q 'data.json'; then
-  echo "[backup] ERROR: data.json を含まない不正なバックアップです" >&2
+echo "[backup] バックアップを取得中 (数分かかります)..."
+ATTEMPTS=3
+OK=0
+for i in $(seq 1 "$ATTEMPTS"); do
+  if [ "$i" -gt 1 ]; then echo "[backup] 取り直します (${i}/${ATTEMPTS})..."; fi
+  if fetch_backup; then OK=1; break; fi
+done
+if [ "$OK" != "1" ]; then
+  echo "[backup] ERROR: バックアップを取得できませんでした (${ATTEMPTS}回試行)" >&2
   rm -f "$ZIP"
   exit 1
 fi

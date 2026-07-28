@@ -17,3 +17,17 @@ frontend/dist/
 
 # 本番バックアップ (実データを含む。コミット厳禁)
 backups/
+
+# Terraform (state と本番シークレットを含む。コミット厳禁)
+# 深さに依存しないパターンにする (state は infra/envs/<env>/ 配下に作られるため)
+**/terraform.tfvars
+**/.terraform/
+**/.terraform.lock.hcl
+# state には全シークレットが平文で入る。絶対にコミットしないこと
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+
+# macOS
+.DS_Store

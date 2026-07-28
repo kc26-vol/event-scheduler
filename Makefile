@@ -24,10 +24,18 @@ LOAD_ENV = set -a && . "$(ENV_PATH)" && set +a
 SYNC_KEYS := APP_PASSWORD SESSION_SECRET RESET_PASSWORD DATA_DIR TZ \
              SCM_DO_BUILD_DURING_DEPLOYMENT WEBSITE_HTTPLOGGING_RETENTION_DAYS
 
-# .env* を必ず除外する (シークレットをデプロイ物に含めない)
+# デプロイzipに入れてはいけないもの。zip は .gitignore を見ないので、
+# .gitignore と別にここでも除外する必要がある。
+#   .env*                       本番シークレット
+#   infra/*, *.tfstate*, *.tfvars, tfplan
+#                               Terraform の state と変数。シークレットが平文で入る
+#   backups/*                   本番データのダンプ。1ファイル数十MBあり、
+#                               取るたびに増えてデプロイzipが際限なく肥大化する
 ZIP_EXCLUDES := ".git/*" ".venv/*" "venv/*" "*/node_modules/*" "node_modules/*" \
-                "*__pycache__/*" "*.pyc" ".pytest_cache/*" ".idea/*" \
-                "data/*" "public_snapshots/*" "uploads/*" "*.db" ".env*" ".deploy/*"
+                "*__pycache__/*" "*.pyc" ".pytest_cache/*" ".idea/*" ".claude/*" \
+                "data/*" "public_snapshots/*" "uploads/*" "*.db" ".env*" ".deploy/*" \
+                "backups/*" "infra/*" "*.tfstate" "*.tfstate.*" "*.tfvars" "tfplan" \
+                ".DS_Store" "*/.DS_Store"
 
 .PHONY: help check-env check-data-dir backup build package deploy deploy-no-backup \
         verify sync-settings test logs open clean
@@ -49,6 +57,12 @@ check-env:
 	  || { echo "ERROR: AZURE_RESOURCE_GROUP が $(ENV_FILE) に設定されていません"; exit 1; }
 	@az account show >/dev/null 2>&1 \
 	  || { echo "ERROR: Azure にログインしていません。'az login' を実行してください"; exit 1; }
+	@# az のログイン先が意図した本番サブスクリプションかを確認する。
+	@# ここを見ないと、別サブスクリプションに向いたまま deploy まで進んでしまう。
+	@$(LOAD_ENV) && { [ -z "$$AZURE_SUBSCRIPTION" ] \
+	    || [ "$$(az account show --query id -o tsv)" = "$$AZURE_SUBSCRIPTION" ]; } \
+	  || { echo "ERROR: az の現在のサブスクリプションが AZURE_SUBSCRIPTION と一致しません。"; \
+	       echo "       az account set --subscription \"$$AZURE_SUBSCRIPTION\""; exit 1; }
 
 # zipデプロイは wwwroot を丸ごと置き換えるため、wwwroot 配下に実データがあると消える。
 # DB・アップロード画像は必ず wwwroot の外 (/home/data) に置くこと。
@@ -84,12 +98,15 @@ package: build
 	@zip -r -q $(ZIP) . -x $(ZIP_EXCLUDES)
 	@test -n "$$(unzip -l $(ZIP) | grep 'frontend/dist/assets/')" \
 	  || { echo "ERROR: frontend/dist がパッケージに含まれていません"; exit 1; }
-	@! unzip -l $(ZIP) | grep -q '\.env' \
-	  || { echo "ERROR: .env がパッケージに混入しています"; exit 1; }
+	@BAD="$$(unzip -l $(ZIP) | awk '{print $$4}' \
+	   | grep -E '(^|/)\.env|\.tfstate|\.tfvars|(^|/)tfplan$$|^backups/' || true)"; \
+	  test -z "$$BAD" || { \
+	    echo "ERROR: シークレットまたは本番データがパッケージに混入しています:"; \
+	    echo "$$BAD" | sed 's/^/  /' | head -20; exit 1; }
 	@echo "packaged: $(ZIP) ($$(du -h $(ZIP) | cut -f1))"
 
-# backup → check-data-dir → package の順に必ず通す。
-# バックアップ取得か DATA_DIR 検証が失敗した時点で、デプロイまで到達しない。
+# check-data-dir → backup → package の順に必ず通す。
+# DATA_DIR 検証かバックアップ取得が失敗した時点で、デプロイまで到達しない。
 deploy: check-env check-data-dir backup package ## バックアップ→デプロイ→検証 (通常はこれを使う)
 	@$(LOAD_ENV) && echo "デプロイ先: $$AZURE_WEBAPP_NAME ($$AZURE_RESOURCE_GROUP)"
 	@$(LOAD_ENV) && az webapp deploy \
