@@ -1,52 +1,43 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import AllMatrixView from './views/AllMatrixView.vue'
-import StaffDetailView from './views/StaffDetailView.vue'
-import VenueView from './views/VenueView.vue'
-import OverallManageView from './views/OverallManageView.vue'
-import GroupManageView from './views/GroupManageView.vue'
-import CategoryManageView from './views/CategoryManageView.vue'
-import StaffsView from './views/StaffsView.vue'
-import StaffDetailPageView from './views/StaffDetailPageView.vue'
-import RoomsView from './views/RoomsView.vue'
-import VenueMapsView from './views/VenueMapsView.vue'
-import OverallAssignView from './views/OverallAssignView.vue'
-import GroupAssignView from './views/GroupAssignView.vue'
-import CategoryAssignView from './views/CategoryAssignView.vue'
-import AlgorithmView from './views/AlgorithmView.vue'
-import SettingsView from './views/SettingsView.vue'
-import BackupView from './views/BackupView.vue'
-import IoView from './views/IoView.vue'
-import PublicApiView from './views/PublicApiView.vue'
-import HelpView from './views/HelpView.vue'
+
+// マイページだけを開く利用者が大多数なので、管理画面のコードは
+// 初期チャンクに載せない。各ルートは遷移時に初めて読み込む。
+// (以前は全19ビューが単一チャンクに同梱されていた)
+import MyDashboardView from './views/MyDashboardView.vue'
 
 // meta.tab: 旧来のタブ名。文字列、またはルートからタブ名を導く関数。
 // ストア側のデータロード分岐 (_enterTab) はこのタブ名を基準に動く。
 const routes = [
-    { path: '/', component: AllMatrixView, meta: { tab: 'all-matrix' } },
-    { path: '/staff-detail', component: StaffDetailView, meta: { tab: 'staff-detail' } },
-    { path: '/venue', component: VenueView, meta: { tab: 'venue-view' } },
-    { path: '/overall/manage', component: OverallManageView, meta: { tab: 'overall-manage' } },
-    { path: '/groups/:id(\\d+)/manage', component: GroupManageView, meta: { tab: (r) => `grp-${r.params.id}-manage` } },
-    { path: '/categories/:key/manage', component: CategoryManageView, meta: { tab: (r) => `${r.params.key}-manage` } },
-    { path: '/staffs', component: StaffsView, meta: { tab: 'staffs' } },
-    { path: '/staffs/:id(\\d+)', component: StaffDetailPageView, meta: { tab: 'staffs' } },
-    { path: '/rooms', component: RoomsView, meta: { tab: 'rooms' } },
-    { path: '/venue-maps', component: VenueMapsView, meta: { tab: 'venue-maps' } },
-    { path: '/overall/assign', component: OverallAssignView, meta: { tab: 'overall-assign' } },
-    { path: '/groups/:id(\\d+)/assign', component: GroupAssignView, meta: { tab: (r) => `grp-${r.params.id}-assign` } },
-    { path: '/categories/:key/assign', component: CategoryAssignView, meta: { tab: (r) => r.params.key } },
-    { path: '/algorithm', component: AlgorithmView, meta: { tab: 'algorithm' } },
-    { path: '/settings', component: SettingsView, meta: { tab: 'settings' } },
-    { path: '/backup', component: BackupView, meta: { tab: 'auto-backup' } },
-    { path: '/export', component: IoView, meta: { tab: 'io' } },
-    { path: '/public-api', component: PublicApiView, meta: { tab: 'public-api' } },
-    { path: '/help', component: HelpView, meta: { tab: 'help' } },
+    // 既定はマイページ。全体スケジュールは /schedule へ移した。
+    { path: '/', component: MyDashboardView, meta: { tab: 'my' } },
+    { path: '/schedule', component: () => import('./views/AllMatrixView.vue'), meta: { tab: 'all-matrix' } },
+    { path: '/staff-detail', component: () => import('./views/StaffDetailView.vue'), meta: { tab: 'staff-detail' } },
+    { path: '/venue', component: () => import('./views/VenueView.vue'), meta: { tab: 'venue-view' } },
+    { path: '/overall/manage', component: () => import('./views/OverallManageView.vue'), meta: { tab: 'overall-manage' } },
+    { path: '/groups/:id(\\d+)/manage', component: () => import('./views/GroupManageView.vue'), meta: { tab: (r) => `grp-${r.params.id}-manage` } },
+    { path: '/categories/:key/manage', component: () => import('./views/CategoryManageView.vue'), meta: { tab: (r) => `${r.params.key}-manage` } },
+    { path: '/staffs', component: () => import('./views/StaffsView.vue'), meta: { tab: 'staffs' } },
+    { path: '/staffs/:id(\\d+)', component: () => import('./views/StaffDetailPageView.vue'), meta: { tab: 'staffs' } },
+    { path: '/rooms', component: () => import('./views/RoomsView.vue'), meta: { tab: 'rooms' } },
+    { path: '/venue-maps', component: () => import('./views/VenueMapsView.vue'), meta: { tab: 'venue-maps' } },
+    { path: '/overall/assign', component: () => import('./views/OverallAssignView.vue'), meta: { tab: 'overall-assign' } },
+    { path: '/groups/:id(\\d+)/assign', component: () => import('./views/GroupAssignView.vue'), meta: { tab: (r) => `grp-${r.params.id}-assign` } },
+    { path: '/categories/:key/assign', component: () => import('./views/CategoryAssignView.vue'), meta: { tab: (r) => r.params.key } },
+    { path: '/algorithm', component: () => import('./views/AlgorithmView.vue'), meta: { tab: 'algorithm' } },
+    { path: '/settings', component: () => import('./views/SettingsView.vue'), meta: { tab: 'settings' } },
+    { path: '/backup', component: () => import('./views/BackupView.vue'), meta: { tab: 'auto-backup' } },
+    { path: '/export', component: () => import('./views/IoView.vue'), meta: { tab: 'io' } },
+    { path: '/public-api', component: () => import('./views/PublicApiView.vue'), meta: { tab: 'public-api' } },
+    { path: '/help', component: () => import('./views/HelpView.vue'), meta: { tab: 'help' } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
 export const router = createRouter({
     history: createWebHistory(),
     routes,
+    scrollBehavior(to, from, saved) {
+        return saved ?? { top: 0 }
+    },
 })
 
 // ルート -> タブ名
@@ -57,7 +48,8 @@ export function routeToTab(route) {
 
 // タブ名 -> パス (静的タブ)
 const TAB_PATHS = {
-    'all-matrix': '/',
+    'my': '/',
+    'all-matrix': '/schedule',
     'staff-detail': '/staff-detail',
     'venue-view': '/venue',
     'overall-manage': '/overall/manage',

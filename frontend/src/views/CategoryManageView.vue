@@ -58,7 +58,11 @@
             </template>
 
             <h3>登録済み一覧</h3>
-            <p v-if="!catGroupFiltered(cat.key).length" style="color:#666">{{ cat.label }}がまだ登録されていません。</p>
+            <SkeletonBlock v-if="!loaded.schedule" :lines="3" :height="56" label="読み込み中" />
+            <EmptyState v-else-if="!catGroupFiltered(cat.key).length"
+                icon="&#128203;"
+                :title="`${cat.label}がまだ登録されていません`"
+                hint="上のフォームから追加してください。" />
             <table v-else>
                 <thead><tr><th>{{ cat.label }}名</th><th>時間</th><th>場所</th><th>英語</th><th>必要人数</th><th>操作</th></tr></thead>
                 <tbody>
@@ -81,6 +85,8 @@
 
 <script setup lang="ts">
 import { useStore } from '../store'
+import SkeletonBlock from '../components/SkeletonBlock.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
@@ -89,6 +95,7 @@ const route = useRoute()
 const ckey = computed(() => route.params.key)
 
 const {
+    loaded,
     _enterTab, tab, sidebarOpen, rooms,
     selectableRooms, overallRoomId, sessions, staffs,
     schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,

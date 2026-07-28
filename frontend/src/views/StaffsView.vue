@@ -69,7 +69,7 @@
                 <template v-if="staffForm.editId">
                     <template v-if="editingStaffAvails.length">
                         <span class="badge avail" v-for="a in editingStaffAvails" :key="a.id" style="display:inline-flex;align-items:center;gap:4px">
-                            {{ fmt(a.start_time) }} - {{ fmtShort(a.end_time) }}
+                            <TimeRange :start="a.start_time" :end="a.end_time" size="sm" inline />
                             <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="removeAvail(staffForm.editId, a.id)">x</button>
                         </span>
                     </template>
@@ -84,7 +84,7 @@
                 <template v-else>
                     <template v-if="newStaffAvails.length">
                         <span class="badge avail" v-for="(a, idx) in newStaffAvails" :key="idx" style="display:inline-flex;align-items:center;gap:4px">
-                            {{ fmt(a.start_time) }} - {{ fmtShort(a.end_time) }}
+                            <TimeRange :start="a.start_time" :end="a.end_time" size="sm" inline />
                             <button class="del-btn" style="font-size:0.75rem;padding:0 4px" @click="newStaffAvails.splice(idx, 1)">x</button>
                         </span>
                     </template>
@@ -111,9 +111,13 @@
                     <span v-if="!editingStaffPrefs.length" style="color:#999;font-size:0.85rem">希望セッション未設定</span>
                     <div class="inline-form" style="margin-top:8px">
                         <div class="form-group" style="flex:2">
-                            <select v-model.number="prefForms[staffForm.editId].session_id">
-                                <option v-for="ss in sessions" :key="ss.id" :value="ss.id">{{ ss.title }} ({{ fmt(ss.start_time) }})</option>
-                            </select>
+                            <SearchSelect
+                                v-model="prefForms[staffForm.editId].session_id"
+                                :options="sessionOptions"
+                                placeholder="セッションを選択"
+                                search-placeholder="タイトルで検索…"
+                                empty-text="セッションがまだ登録されていません"
+                                aria-label="希望セッションを選択" />
                         </div>
                         <div class="form-group" style="flex:1">
                             <input v-model.number="prefForms[staffForm.editId].priority" type="number" min="1" placeholder="優先度" style="width:80px">
@@ -132,9 +136,13 @@
                     <span v-if="!newStaffPrefs.length" style="color:#999;font-size:0.85rem">希望セッション未設定</span>
                     <div class="inline-form" style="margin-top:8px">
                         <div class="form-group" style="flex:2">
-                            <select v-model.number="newPrefForm.session_id">
-                                <option v-for="ss in sessions" :key="ss.id" :value="ss.id">{{ ss.title }} ({{ fmt(ss.start_time) }})</option>
-                            </select>
+                            <SearchSelect
+                                v-model="newPrefForm.session_id"
+                                :options="sessionOptions"
+                                placeholder="セッションを選択"
+                                search-placeholder="タイトルで検索…"
+                                empty-text="セッションがまだ登録されていません"
+                                aria-label="希望セッションを選択" />
                         </div>
                         <div class="form-group" style="flex:1">
                             <input v-model.number="newPrefForm.priority" type="number" min="1" placeholder="優先度" style="width:80px">
@@ -150,10 +158,20 @@
             </div>
 
             <!-- スタッフ一覧 (タイル表示) -->
-            <div class="staff-tile-grid">
-                <div v-for="s in staffs" :key="s.id" class="staff-tile" @click="openStaff(s.id)">
-                    <img v-if="s.photo" :src="s.photo" :alt="s.name" class="staff-tile-photo">
-                    <span v-else class="speaker-photo-placeholder staff-tile-photo">{{ s.name.charAt(0) }}</span>
+            <div class="staff-list-head">
+                <h3>登録済みスタッフ</h3>
+                <input v-model="tileQuery" type="search" class="staff-search" placeholder="名前で検索…" aria-label="スタッフを名前で検索">
+                <span class="staff-count">{{ filteredStaffs.length }}/{{ staffs.length }}名</span>
+            </div>
+            <SkeletonBlock v-if="!loaded.staffs" :lines="3" :height="120" label="スタッフを読み込み中" />
+            <EmptyState v-else-if="!staffs.length"
+                icon="&#128101;"
+                title="スタッフがまだ登録されていません"
+                hint="上のフォームから追加してください。" />
+            <EmptyState v-else-if="!filteredStaffs.length" icon="&#128269;" title="一致するスタッフがいません" />
+            <div v-else class="staff-tile-grid">
+                <div v-for="s in filteredStaffs" :key="s.id" class="staff-tile" @click="openStaff(s.id)">
+                    <AvatarIcon :name="s.name" :src="s.photo" :size="64" class="staff-tile-avatar" />
                     <div class="staff-tile-name">{{ s.name }}</div>
                     <div v-if="s.slack_name" style="font-size:0.75rem;color:#888;margin-bottom:6px">{{ s.slack_name }}</div>
                     <div>
@@ -169,8 +187,16 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStore } from '../store'
+import AvatarIcon from '../components/AvatarIcon.vue'
+import SearchSelect from '../components/SearchSelect.vue'
+import TimeRange from '../components/TimeRange.vue'
+import SkeletonBlock from '../components/SkeletonBlock.vue'
+import EmptyState from '../components/EmptyState.vue'
+import { matchesQuery } from '../utils/search'
+import { mdw, hhmm } from '../utils/datetime'
 
 // ファイル選択ボタン (テンプレート内でのDOMキャストを避けるため関数化)
 function pickFile(e: MouseEvent) {
@@ -179,96 +205,50 @@ function pickFile(e: MouseEvent) {
 }
 
 const {
-    _enterTab, tab, sidebarOpen, rooms,
-    selectableRooms, overallRoomId, sessions, staffs,
-    schedule, staffAssignments, staffAssignmentsWithAll, scheduleMsg,
-    scheduleMsgError, sessPhotoPreview, sessPhoto, roomForm,
-    sessForm, staffForm, roleDropdownOpen, prefForms,
-    availForms, ltTalks, venueMaps, venueMapForm,
-    venueMapPreview, venueMapInput, mapModal, switchTab,
-    catLabel, fmt, fmtShort, sortedPrefs,
-    autoSetEndTime, cancelEditRoom, editRoom, submitRoom,
-    deleteRoom, onVenueMapChange, cancelEditVenueMap, editVenueMap,
-    submitVenueMap, deleteVenueMap, sessDetailSession, sessDetailEntry,
-    sessDetailLocked, toggleSessionDetail, toggleSessDetailLock, gridMenu,
-    showGridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
-    isMultiSpeakerCat, onPhotoChange, onPhotoPaste, onLTTalkPhoto,
-    autoSetLTEndTime, toggleRepresentative, cancelEditSession, editSession,
-    submitSession, deleteSession, addLTTalk, calcStaffMsg,
-    calcStaffSummary, calcRequiredStaff, newStaffAvails, newAvailForm,
-    addNewStaffAvail, newStaffPrefs, newPrefForm, addNewStaffPref,
-    sessionTitle, sessionLabel, staffAssignCount, editingStaffPrefs,
-    editingStaffAvails, submitStaff, editStaff, cancelEditStaff,
-    deleteStaff, uploadStaffPhoto, deleteStaffPhoto, onNewStaffPhoto,
-    clearNewStaffPhoto, staffPhotoPreview, addPref, removePref,
-    addAvail, removeAvail, sessionSchedule, sessionGroups,
-    groupLocks, groupSessForms, groupStaffFilters, groupScheduleMsgs,
-    groupSelectedSessions, grpDateTabs, grpDates, grpDateFiltered,
-    groupSchedule, filteredGroupSchedule, filteredGroupSessions, groupSessionOpacity,
-    groupSessions, cancelEditGroupSession, editGroupSession, submitGroupSession,
-    deleteGroupSession, onGroupPhotoChange, autoAssignGroup, autoAssignGroupSelected,
-    autoAssignGroupFill, clearGroupAssignments, toggleGroupSessionSelect, toggleGroupSelectAll,
-    grpGridConfig, grpGridRooms, grpGridStyle, grpGridLabels,
-    grpSessionStyle, grpDragSessionStyle, onGrpDragStart, grpSelectedSession,
-    grpSelectedEntry, categories, dynamicCatKeys, categoryLocks,
-    categoryForms, categoryAssignMsgs, categoryStaffFilters, categorySessions,
-    catDates, catKeyDates, catGroupTabs, catGroupFiltered,
-    catTimelineByGroup, filteredCategorySessions, catSessionOpacity, cancelEditCategory,
-    editCategory, submitCategory, deleteCategory, autoAssignCategory,
-    clearCategoryAssignments, catSelectedSessions, autoAssignCategorySelected, autoAssignCategoryFill,
-    toggleCatSessionSelect, toggleCatSelectAll, catGridConfig, catGridRooms,
-    catGridStyle, catGridLabels, catSessionStyle, catDragSessionStyle,
-    onCatDragStart, catSelectedSession, catSelectedEntry, roleOptions,
-    assignStaffSelect, availableStaffs, addAssignment, removeAssignment,
-    setAllStaff, unsetAllStaff, addAssignmentOrAll, selectedSessions,
-    toggleSessionSelect, toggleSelectAll, autoAssign, autoAssignSelected,
-    autoAssignFill, clearAssignments, tlRooms, tlGridStyle,
-    tlLabels, tlSessionStyle, tlBreaks, matrixLocked,
-    drag, dragSessionStyle, onDragStart, dragCursor,
-    exportExcel, exportBackup, backupFileName, ioMsg,
-    ioMsgError, onBackupFileChange, importBackup, connpassTimeline,
-    speakerTemplate, connpassBaseUrl, generateConnpassTimeline, generateSpeakerTemplate,
-    copyToClipboard, resetAllData, resetMsg, resetMsgError,
-    resetPassword, resetPwForm, resetPwMsg, resetPwMsgError,
-    changeResetPassword, appTitle, allowOverlap, travelBufferMin,
-    settingsForm, settingsMsg, saveSettings, pwForm,
-    pwMsg, pwMsgError, changePassword, catSettingForm,
-    catSettingMsg, editCatSetting, cancelCatSetting, saveCatSetting,
-    deleteCatSetting, grpSettingForm, grpSettingMsg, editGrpSetting,
-    cancelGrpSetting, saveGrpSetting, deleteGrpSetting, sessionCatOptions,
-    extraSessionCats, defaultSessionCats, sessCatForm, sessCatMsg,
-    editSessCat, cancelSessCat, saveSessCat, deleteSessCat,
-    customRoles, roleSettingForm, roleSettingMsg, editRoleSetting,
-    cancelRoleSetting, saveRoleSetting, deleteRoleSetting, categoryRoleLinks,
-    catRoleLinkSelect, addCatRoleLink, removeCatRoleLink, groupRoleLinks,
-    grpRoleLinkSelect, addGrpRoleLink, removeGrpRoleLink, staffDetailFilter,
-    staffDetailMatch, matrixStaffFilter, matrixStaffOptions, overallSessions,
-    overallLocked, overallStaffFilter, overallAssignMsg, overallSelectedSessions,
-    overallDateTab, overallSchedule, overallDateFiltered, filteredOverallSchedule,
-    overallSessionOpacity, overallDates, toggleOverallSessionSelect, toggleOverallSelectAll,
-    autoAssignOverall, autoAssignOverallSelected, clearOverallAssignments, ovGridConfig,
-    ovGridRooms, ovGridStyle, ovGridLabels, ovSessionStyle,
-    ovDragSessionStyle, onOvDragStart, ovManageFiltered, ovManageGridStyle,
-    ovManageGridRooms, ovManageGridLabels, ovManageSessionStyle, ovManageDragSessionStyle,
-    onOvManageDragStart, allGroupTab, allStaffFilter, allSchedule,
-    allTimelineByGroup, allConfig, allColumns, allGridStyle,
-    allLabels, allSessionStyle, allSessionBg, allSessionOpacity,
-    allSelectedSession, allSelectedEntry, allAssignMsg, allOvForm,
-    cancelAllOverall, submitAllOverall, editAllEntry, deleteAllEntry,
-    filteredMatrixSchedule, matrixSessionOpacity, _hasStaff,
-    CAT_BG, abSettings, abStatus, abHistory,
-    abMsg, abDownload, loadAbSettings, loadAbStatus,
-    loadAbHistory, saveAbSettings, triggerBackupNow, deleteBackupEntry,
-    downloadBackupEntry, pubApi, pubHistory, pubMsg,
-    pubMsgError, pubApiUrl, loadPubApiSettings, savePubApiSettings,
-    regenerateApiKey, clearGithubToken, publishSnapshot, loadPubHistory,
-    activateSnapshot, deleteSnapshot, copyApiUrl, copyApiKey,
+    loaded, staffs, sessions, catLabel, fmt, roleOptions, roleDropdownOpen,
+    staffForm, staffPhotoPreview, staffAssignCount, sessionLabel,
+    prefForms, availForms, editingStaffPrefs, editingStaffAvails,
+    newStaffPrefs, newPrefForm, newStaffAvails, newAvailForm,
+    addPref, removePref, addAvail, removeAvail, addNewStaffPref, addNewStaffAvail,
+    submitStaff, cancelEditStaff, onNewStaffPhoto, onPhotoPaste, clearNewStaffPhoto, deleteStaffPhoto,
 } = useStore()
 
 const router = useRouter()
-
-// タイルクリックでスタッフ詳細ページへ遷移
 function openStaff(id: number) {
     router.push(`/staffs/${id}`)
 }
+
+// 希望セッションの選択肢。件数が多いので日時も含めて検索できるようにする。
+const sessionOptions = computed(() =>
+    sessions.value.map(ss => ({
+        value: ss.id,
+        label: ss.title,
+        sublabel: `${mdw(ss.start_time)} ${hhmm(ss.start_time)}`,
+        keywords: `${mdw(ss.start_time)} ${hhmm(ss.start_time)} ${ss.speaker || ''}`,
+    }))
+)
+
+// スタッフタイルの絞り込み。全件を目視せずに目当ての人へ辿り着けるように。
+const tileQuery = ref('')
+const filteredStaffs = computed(() =>
+    staffs.value.filter(s => matchesQuery(tileQuery.value, s.name, s.slack_name))
+)
 </script>
+
+<style scoped>
+.staff-list-head {
+    display: flex; align-items: center; gap: var(--sp-3);
+    margin-top: var(--sp-6); flex-wrap: wrap;
+}
+.staff-list-head h3 { margin: 0; flex-shrink: 0; }
+.staff-search {
+    flex: 1; min-width: 160px; max-width: 280px;
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--c-border-strong); border-radius: var(--r-md);
+    /* 16px 未満だと iOS Safari がフォーカス時にズームする */
+    font-size: 16px; font-family: inherit;
+}
+.staff-search:focus { outline: none; border-color: var(--c-primary); box-shadow: 0 0 0 3px var(--c-primary-weak); }
+.staff-count { font-size: var(--fs-sm); color: var(--c-text-2); white-space: nowrap; }
+.staff-tile-avatar { margin: 0 auto var(--sp-2); display: block; }
+</style>
