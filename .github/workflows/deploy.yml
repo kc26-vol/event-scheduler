@@ -1,0 +1,177 @@
+name: Deploy
+
+# main への push で staging、Release の公開で本番へデプロイする。
+#
+# 認証は Workload Identity Federation (OIDC) を使い、発行プロファイルや
+# client secret のような長期シークレットは保存しない。
+# このリポジトリは public のため、フォークからの PR で実行されない
+# トリガー (push / release / workflow_dispatch) のみを使っている。
+#
+# 必要な設定は .github/workflows/README.md を参照。
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "infra/**"
+      - ".github/**"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: デプロイ先
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  id-token: write # OIDC トークンの取得に必要
+  contents: read
+
+concurrency:
+  # 同じ環境への同時デプロイを防ぐ。実行中のデプロイは中断しない。
+  group: deploy-${{ github.event_name == 'release' && 'production' || inputs.target || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.t.outputs.environment }}
+      app_name: ${{ steps.t.outputs.app_name }}
+    steps:
+      - id: t
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TARGET=production
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET="${{ inputs.target }}"
+          else
+            TARGET=staging
+          fi
+          echo "environment=$TARGET" >> "$GITHUB_OUTPUT"
+          if [ "$TARGET" = "production" ]; then
+            echo "app_name=${{ vars.AZURE_WEBAPP_NAME_PROD }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "app_name=${{ vars.AZURE_WEBAPP_NAME_STAGING }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "デプロイ先: $TARGET"
+
+  deploy:
+    needs: setup
+    runs-on: ubuntu-latest
+    # 環境に承認ゲートやレビュアーを設定できる (本番は必須にすることを推奨)
+    environment:
+      name: ${{ needs.setup.outputs.environment }}
+      url: https://${{ needs.setup.outputs.app_name }}.azurewebsites.net
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # バックエンドは frontend/dist を静的配信する。
+      # Oryx の Python ビルドは Node を実行しないため、ここで必ずビルドしておく。
+      - name: フロントエンドをビルド
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: デプロイパッケージを作成
+        run: |
+          set -euo pipefail
+          # .env* を必ず除外する (シークレットをデプロイ物に含めない)。
+          # data/ 等は wwwroot 配下に置かない運用なので同梱しない。
+          # .venv/ .deploy/ は CI には無いが、同じコマンドをローカルで
+          # 検証できるように除外しておく (無いと 100MB 超になる)。
+          zip -r -q deploy.zip . \
+            -x ".git/*" ".github/*" "infra/*" \
+               "*/node_modules/*" "node_modules/*" \
+               ".venv/*" "venv/*" ".deploy/*" ".idea/*" \
+               "*__pycache__/*" "*.pyc" ".pytest_cache/*" \
+               "data/*" "backups/*" "public_snapshots/*" "uploads/*" \
+               "*.db" ".env*" "*.tfstate*" "deploy.zip"
+
+      # パッケージが壊れていないかを、デプロイ前に検証する
+      - name: パッケージを検証
+        run: |
+          set -euo pipefail
+          unzip -l deploy.zip | grep -q 'frontend/dist/assets/' \
+            || { echo "::error::frontend/dist がパッケージに含まれていません"; exit 1; }
+          unzip -l deploy.zip | grep -q 'requirements.txt' \
+            || { echo "::error::requirements.txt がありません (Oryx が依存を入れられません)"; exit 1; }
+          if unzip -l deploy.zip | grep -q '\.env'; then
+            echo "::error::.env がパッケージに混入しています"; exit 1
+          fi
+          echo "パッケージ検証 OK ($(du -h deploy.zip | cut -f1))"
+
+      - name: Azure にログイン (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # zip デプロイは wwwroot を丸ごと置き換える。実データが wwwroot 配下に
+      # あるとデプロイで消えるため、DATA_DIR が永続領域を指すことを確認する。
+      - name: DATA_DIR が永続領域を指しているか検証
+        run: |
+          set -euo pipefail
+          D=$(az webapp config appsettings list \
+                --name "${{ needs.setup.outputs.app_name }}" \
+                --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+                --query "[?name=='DATA_DIR'].value | [0]" -o tsv)
+          if [ -z "$D" ] || [ "$D" = "None" ]; then
+            echo "::error::DATA_DIR が未設定です。DB が wwwroot 配下に作られ、デプロイで消えます"; exit 1
+          fi
+          case "$D" in
+            /home/site/wwwroot*) echo "::error::DATA_DIR ($D) が wwwroot 配下です。デプロイで消えます"; exit 1 ;;
+            /home/*) echo "OK: DATA_DIR=$D" ;;
+            *) echo "::error::DATA_DIR ($D) が永続領域 (/home 配下) ではありません"; exit 1 ;;
+          esac
+
+      - name: デプロイ
+        run: |
+          az webapp deploy \
+            --name "${{ needs.setup.outputs.app_name }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --src-path deploy.zip \
+            --type zip
+
+      # 起動失敗 (例: /home のマウント未完了) を検知する。
+      # アプリは認証必須なので、認証不要な login.html で判定する。
+      - name: 起動を確認
+        run: |
+          set -euo pipefail
+          URL="https://${{ needs.setup.outputs.app_name }}.azurewebsites.net/login.html"
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$URL" || true)
+            if [ "$CODE" = "200" ]; then
+              echo "起動を確認しました (HTTP 200)"; exit 0
+            fi
+            echo "待機中... ($i/30, HTTP $CODE)"
+            sleep 10
+          done
+          echo "::error::アプリが応答しません。起動時のログを確認してください"
+          exit 1
+
+      - name: デプロイ結果
+        run: |
+          {
+            echo "### デプロイ完了 :rocket:"
+            echo ""
+            echo "- 環境: \`${{ needs.setup.outputs.environment }}\`"
+            echo "- URL: https://${{ needs.setup.outputs.app_name }}.azurewebsites.net"
+            echo "- コミット: \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
