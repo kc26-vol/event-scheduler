@@ -160,6 +160,8 @@ watch(filtered, list => {
 
 const SHEET_BREAKPOINT = 480
 const POPUP_MAX_H = 340
+const POPUP_MIN_W = 240
+const EDGE = 8   // 画面端に残す余白
 
 function place() {
     const el = triggerEl.value
@@ -175,9 +177,19 @@ function place() {
     // 下に入らず上の方が広いなら上に出す
     const flip = below < 220 && above > below
     const maxH = Math.max(160, Math.min(POPUP_MAX_H, (flip ? above : below) - 12))
+
+    // 横位置は「ポップアップ自身の幅」で決める。以前はトリガーの幅で左端を
+    // 丸めていたため、右端に置いた小さなボタン (compact な PersonSwitcher など)
+    // ではポップアップだけが画面外へはみ出していた。
+    const width = Math.min(Math.max(r.width, POPUP_MIN_W), window.innerWidth - EDGE * 2)
+    // 既定は左揃え。右にはみ出す場合はトリガーの右端に揃える (メニューとして自然)。
+    let left = r.left
+    if (left + width > window.innerWidth - EDGE) left = r.right - width
+    left = Math.max(EDGE, Math.min(left, window.innerWidth - width - EDGE))
+
     popupStyle.value = {
-        left: `${Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8))}px`,
-        width: `${Math.max(r.width, 240)}px`,
+        left: `${left}px`,
+        width: `${width}px`,
         maxHeight: `${maxH}px`,
         ...(flip
             ? { bottom: `${window.innerHeight - r.top + 4}px` }
