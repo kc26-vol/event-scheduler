@@ -123,7 +123,7 @@ jobs:
       # 発行プロファイル方式では az が使えないので Kudu の API から読む。
       - name: DATA_DIR が永続領域を指しているか検証
         env:
-          PUBLISH_PROFILE: ${{ needs.setup.outputs.environment == 'production' && secrets.AZURE_PUBLISH_PROFILE_PROD || secrets.AZURE_PUBLISH_PROFILE_STAGING }}
+          PUBLISH_PROFILE: ${{ secrets.AZURE_PUBLISH_PROFILE }}
           APP_NAME: ${{ needs.setup.outputs.app_name }}
         run: |
           set -euo pipefail
@@ -159,7 +159,7 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ needs.setup.outputs.app_name }}
-          publish-profile: ${{ needs.setup.outputs.environment == 'production' && secrets.AZURE_PUBLISH_PROFILE_PROD || secrets.AZURE_PUBLISH_PROFILE_STAGING }}
+          publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE }}
           package: deploy.zip
 
       # 起動失敗 (例: /home のマウント未完了) を検知する。

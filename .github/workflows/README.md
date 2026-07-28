@@ -47,10 +47,28 @@ az webapp deployment list-publishing-profiles \
 
 `Settings > Secrets and variables > Actions > Secrets`
 
-| 名前 | 値 |
-|---|---|
-| `AZURE_PUBLISH_PROFILE_STAGING` | staging の発行プロファイル XML 全体 |
-| `AZURE_PUBLISH_PROFILE_PROD` | 本番の発行プロファイル XML 全体 |
+**環境スコープ**で登録します (リポジトリ Secret にしないこと)。
+両環境で同じ名前 `AZURE_PUBLISH_PROFILE` を使い、どちらが使われるかは
+ジョブの `environment:` が決めます。
+
+| 環境 | 名前 | 値 |
+|---|---|---|
+| `staging` | `AZURE_PUBLISH_PROFILE` | staging の発行プロファイル XML 全体 |
+| `production` | `AZURE_PUBLISH_PROFILE` | 本番の発行プロファイル XML 全体 |
+
+環境スコープにすることで、**本番の発行プロファイルは `production` 環境の
+承認を通らないと読み出せません**。リポジトリ Secret だとどのジョブからも
+読めてしまいます。
+
+`gh` で入れる場合:
+
+```bash
+RG=kcjp26-event-scheduler-dev
+az webapp deployment list-publishing-profiles -n kcjp26-event-scheduler-staging -g $RG --xml \
+  | gh secret set AZURE_PUBLISH_PROFILE --env staging
+az webapp deployment list-publishing-profiles -n kcjp26-event-scheduler-dev-app -g $RG --xml \
+  | gh secret set AZURE_PUBLISH_PROFILE --env production
+```
 
 ### 2-3. Variables
 
