@@ -1,106 +1,63 @@
 # デプロイワークフローのセットアップ
 
-`deploy.yml` は Workload Identity Federation (OIDC) で Azure に認証します。
-**発行プロファイルや client secret を GitHub に保存しません。**
-
 | トリガー | デプロイ先 |
 |---|---|
 | `main` への push | staging |
 | Release の公開 | 本番 |
 | 手動実行 (`workflow_dispatch`) | 選択 |
 
-このリポジトリは public のため、フォークからの PR で発火しないトリガーのみを
-使っています (`pull_request` は使わない)。
+認証は**発行プロファイル**を使います。OIDC への移行は別タスクです
+(下記「OIDC への移行」を参照)。
 
-## 1. Azure 側の設定
+このリポジトリは public のため、フォークからの PR で発火しないトリガー
+(`push` / `release` / `workflow_dispatch`) のみを使っています。
+GitHub の Secrets はフォークからの PR には渡りません。
 
-`az login` した状態で実行します。**手順 3 (ロール割り当て) だけは
-サブスクリプションまたは RG の Owner / ユーザーアクセス管理者が必要です。**
-RG の Contributor では `Microsoft.Authorization/*/Write` が NotActions に
-入っているため実行できません。
+## 1. 発行プロファイルを取得する
 
-```bash
-REPO="kc26-vol/event-scheduler"
-APP_NAME="github-actions-event-scheduler"
-RG="kcjp26-event-scheduler-dev"
-SUB=$(az account show --query id -o tsv)
-```
-
-### 1-1. アプリ登録とサービスプリンシパルを作る
+SCM (Kudu) のベーシック認証が有効である必要があります。Terraform で
+`scm_basic_auth_enabled = true` として管理しています (FTP は無効のまま)。
 
 ```bash
-APP_ID=$(az ad app create --display-name "$APP_NAME" --query appId -o tsv)
-az ad sp create --id "$APP_ID"
-echo "AZURE_CLIENT_ID = $APP_ID"
+RG=kcjp26-event-scheduler-dev
+
+az webapp deployment list-publishing-profiles \
+  -n kcjp26-event-scheduler-staging -g $RG --xml
+
+az webapp deployment list-publishing-profiles \
+  -n kcjp26-event-scheduler-dev-app -g $RG --xml
 ```
 
-### 1-2. フェデレーション資格情報を登録する
+出力された XML **全体**をそのまま GitHub Secret に貼り付けます。
 
-GitHub からのトークンだけを信頼するように、`subject` を厳密に指定します。
-**環境 (Environment) を subject に含めることで、その環境の承認を通った実行
-だけが認証できます。**
-
-```bash
-# staging 環境用
-az ad app federated-credential create --id "$APP_ID" --parameters '{
-  "name": "github-staging",
-  "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:'"$REPO"':environment:staging",
-  "audiences": ["api://AzureADTokenExchange"]
-}'
-
-# 本番環境用
-az ad app federated-credential create --id "$APP_ID" --parameters '{
-  "name": "github-production",
-  "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:'"$REPO"':environment:production",
-  "audiences": ["api://AzureADTokenExchange"]
-}'
-```
-
-### 1-3. ロールを割り当てる（要 Owner / ユーザーアクセス管理者）
-
-```bash
-az role assignment create \
-  --assignee "$APP_ID" \
-  --role "Contributor" \
-  --scope "/subscriptions/$SUB/resourceGroups/$RG"
-```
-
-> より絞るなら `Website Contributor` でも動きます。ただし
-> `az webapp config appsettings list` (DATA_DIR の検証) が必要なため、
-> 読み取り権限が含まれることを確認してください。
+> ポータルからでも取得できます:
+> **App Service → 概要 → 発行プロファイルの取得**
 
 ## 2. GitHub 側の設定
 
-### 2-1. Environments を作る
+### 2-1. Environments
 
 `Settings > Environments` で **`staging`** と **`production`** を作成します。
 
-**`production` には必ず Required reviewers を設定してください。**
-1-2 の `subject` が環境名を含むため、環境の承認を通らない限り Azure への
-認証自体が成立しません。
+**`production` には Required reviewers を設定してください。**
+発行プロファイル方式では認証自体にゲートが掛からないため、
+**環境の承認が唯一のデプロイゲート**になります。
 
-### 2-2. Secrets を登録する
+### 2-2. Secrets
 
 `Settings > Secrets and variables > Actions > Secrets`
 
 | 名前 | 値 |
 |---|---|
-| `AZURE_CLIENT_ID` | 1-1 で出力された `appId` |
-| `AZURE_TENANT_ID` | `az account show --query tenantId -o tsv` |
-| `AZURE_SUBSCRIPTION_ID` | `az account show --query id -o tsv` |
+| `AZURE_PUBLISH_PROFILE_STAGING` | staging の発行プロファイル XML 全体 |
+| `AZURE_PUBLISH_PROFILE_PROD` | 本番の発行プロファイル XML 全体 |
 
-これらは資格情報そのものではありませんが、public リポジトリなので
-Variables ではなく Secrets に入れています。
-
-### 2-3. Variables を登録する
+### 2-3. Variables
 
 `Settings > Secrets and variables > Actions > Variables`
 
 | 名前 | 値 |
 |---|---|
-| `AZURE_RESOURCE_GROUP` | `kcjp26-event-scheduler-dev` |
 | `AZURE_WEBAPP_NAME_STAGING` | `kcjp26-event-scheduler-staging` |
 | `AZURE_WEBAPP_NAME_PROD` | `kcjp26-event-scheduler-dev-app` |
 
@@ -108,7 +65,7 @@ Variables ではなく Secrets に入れています。
 
 1. 手動実行 (`Actions > Deploy > Run workflow`) で `staging` を選ぶ
 2. 成功したら `main` に push して自動デプロイを確認
-3. 本番は Release を作成して確認（承認ゲートが働くこと）
+3. 本番は Release を作成して確認 (承認ゲートが働くこと)
 
 ## ワークフローが守っていること
 
@@ -122,11 +79,76 @@ Variables ではなく Secrets に入れています。
 | `DATA_DIR` の検証 | zip デプロイは wwwroot を丸ごと置き換えるため、実データが wwwroot 配下にあると消える |
 | 起動確認 (`login.html` が 200) | `/home` のマウント未完了などによる起動失敗を検知する |
 
+`DATA_DIR` の検証は Kudu の `/api/settings` から読んでいます
+(発行プロファイル方式では `az` が使えないため)。取り出した資格情報は
+`::add-mask::` でログから伏せています。
+
 ## アプリ設定・データについて
 
 ワークフローは**アプリ設定 (環境変数) を変更しません**。変更は
 `make sync-settings` で明示的に行います。
 
 デプロイは `wwwroot` のみを置き換え、`/home/data` (DB・アップロード) には
-触れません。手元からのデプロイでバックアップを取りたい場合は `make deploy`
+触れません。**データに影響しうる変更を出すときは手元から `make deploy`**
 を使ってください (バックアップ → デプロイ → データ件数検証を強制します)。
+
+## OIDC への移行 (別タスク)
+
+発行プロファイルは**長期シークレット**です。public リポジトリでもあるため、
+本来は Workload Identity Federation (OIDC) が望ましい方式です。
+
+移行が保留になっている理由は**権限**です。
+
+```
+現在のロール: Contributor (RG kcjp26-event-scheduler-dev)
+Contributor の NotActions: Microsoft.Authorization/*/Write
+→ サービスプリンシパルへのロール割り当てができない
+```
+
+RG の Owner (`wakadanna.com_hotmail.co.jp#EXT#@...`) に依頼が必要です。
+
+### 移行手順
+
+1. アプリ登録を作る (テナントの `allowedToCreateApps` が true なので実行可能)
+
+```bash
+APP_ID=$(az ad app create --display-name "github-actions-event-scheduler" --query appId -o tsv)
+az ad sp create --id "$APP_ID"
+```
+
+2. フェデレーション資格情報を登録する。**`subject` に環境名を含めることで、
+   その環境の承認を通った実行だけが認証できる** (ワークフローを書き換えても
+   迂回できないゲートになる)
+
+```bash
+REPO="kc26-vol/event-scheduler"
+for ENV in staging production; do
+  az ad app federated-credential create --id "$APP_ID" --parameters '{
+    "name": "github-'"$ENV"'",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:'"$REPO"':environment:'"$ENV"'",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+done
+```
+
+3. **ロールを割り当てる (要 Owner / ユーザーアクセス管理者)**
+
+```bash
+SUB=$(az account show --query id -o tsv)
+az role assignment create --assignee "$APP_ID" --role Contributor \
+  --scope "/subscriptions/$SUB/resourceGroups/kcjp26-event-scheduler-dev"
+```
+
+4. ワークフローを変更する
+
+   - `permissions:` に `id-token: write` を追加
+   - `azure/login@v2` (client-id / tenant-id / subscription-id) を追加
+   - `azure/webapps-deploy@v3` の `publish-profile` を外す
+   - `DATA_DIR` の検証を Kudu API から `az webapp config appsettings list` に戻す
+
+5. 発行プロファイルの Secrets を削除し、SCM のベーシック認証を無効に戻す
+
+```bash
+# infra/envs/*/main.tf で scm_basic_auth_enabled = false にして apply
+```

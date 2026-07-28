@@ -2,12 +2,13 @@ name: Deploy
 
 # main への push で staging、Release の公開で本番へデプロイする。
 #
-# 認証は Workload Identity Federation (OIDC) を使い、発行プロファイルや
-# client secret のような長期シークレットは保存しない。
+# 認証は発行プロファイル (長期シークレット) を使う。
+# OIDC (Workload Identity Federation) への移行は別タスク。移行時は
+# .github/workflows/README.md の「OIDC への移行」を参照。
+#
 # このリポジトリは public のため、フォークからの PR で実行されない
 # トリガー (push / release / workflow_dispatch) のみを使っている。
-#
-# 必要な設定は .github/workflows/README.md を参照。
+# GitHub の Secrets はフォークからの PR には渡らない。
 
 on:
   push:
@@ -27,7 +28,6 @@ on:
         default: staging
 
 permissions:
-  id-token: write # OIDC トークンの取得に必要
   contents: read
 
 concurrency:
@@ -51,12 +51,14 @@ jobs:
           else
             TARGET=staging
           fi
-          echo "environment=$TARGET" >> "$GITHUB_OUTPUT"
-          if [ "$TARGET" = "production" ]; then
-            echo "app_name=${{ vars.AZURE_WEBAPP_NAME_PROD }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "app_name=${{ vars.AZURE_WEBAPP_NAME_STAGING }}" >> "$GITHUB_OUTPUT"
-          fi
+          {
+            echo "environment=$TARGET"
+            if [ "$TARGET" = "production" ]; then
+              echo "app_name=${{ vars.AZURE_WEBAPP_NAME_PROD }}"
+            else
+              echo "app_name=${{ vars.AZURE_WEBAPP_NAME_STAGING }}"
+            fi
+          } >> "$GITHUB_OUTPUT"
           echo "デプロイ先: $TARGET"
 
   deploy:
@@ -116,23 +118,35 @@ jobs:
           fi
           echo "パッケージ検証 OK ($(du -h deploy.zip | cut -f1))"
 
-      - name: Azure にログイン (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
       # zip デプロイは wwwroot を丸ごと置き換える。実データが wwwroot 配下に
       # あるとデプロイで消えるため、DATA_DIR が永続領域を指すことを確認する。
+      # 発行プロファイル方式では az が使えないので Kudu の API から読む。
       - name: DATA_DIR が永続領域を指しているか検証
+        env:
+          PUBLISH_PROFILE: ${{ needs.setup.outputs.environment == 'production' && secrets.AZURE_PUBLISH_PROFILE_PROD || secrets.AZURE_PUBLISH_PROFILE_STAGING }}
+          APP_NAME: ${{ needs.setup.outputs.app_name }}
         run: |
           set -euo pipefail
-          D=$(az webapp config appsettings list \
-                --name "${{ needs.setup.outputs.app_name }}" \
-                --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-                --query "[?name=='DATA_DIR'].value | [0]" -o tsv)
-          if [ -z "$D" ] || [ "$D" = "None" ]; then
+          # 発行プロファイル(XML)から SCM の資格情報を取り出す
+          CREDS=$(python3 - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          root = ET.fromstring(os.environ["PUBLISH_PROFILE"])
+          for p in root.iter("publishProfile"):
+              if p.get("publishMethod") == "MSDeploy":
+                  print(f'{p.get("userName")}\t{p.get("userPWD")}')
+                  sys.exit(0)
+          sys.exit("MSDeploy プロファイルが見つかりません")
+          PY
+          )
+          USER="${CREDS%%$'\t'*}"; PASS="${CREDS#*$'\t'}"
+          # ログに出さない
+          echo "::add-mask::$PASS"
+          echo "::add-mask::$USER"
+
+          D=$(curl -sf -u "$USER:$PASS" --max-time 60 \
+                "https://${APP_NAME}.scm.azurewebsites.net/api/settings" \
+              | python3 -c 'import sys,json;print(json.load(sys.stdin).get("DATA_DIR",""))')
+          if [ -z "$D" ]; then
             echo "::error::DATA_DIR が未設定です。DB が wwwroot 配下に作られ、デプロイで消えます"; exit 1
           fi
           case "$D" in
@@ -142,12 +156,11 @@ jobs:
           esac
 
       - name: デプロイ
-        run: |
-          az webapp deploy \
-            --name "${{ needs.setup.outputs.app_name }}" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --src-path deploy.zip \
-            --type zip
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ needs.setup.outputs.app_name }}
+          publish-profile: ${{ needs.setup.outputs.environment == 'production' && secrets.AZURE_PUBLISH_PROFILE_PROD || secrets.AZURE_PUBLISH_PROFILE_STAGING }}
+          package: deploy.zip
 
       # 起動失敗 (例: /home のマウント未完了) を検知する。
       # アプリは認証必須なので、認証不要な login.html で判定する。
