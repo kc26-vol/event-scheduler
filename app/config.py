@@ -4,6 +4,19 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "."))
+
+# DATA_DIR を明示設定している = 永続ストレージを使う意図がある、とみなして検証する。
+# 永続ボリュームが使えると確認できるまで、以降の mkdir / create_all に進まない。
+# 未マウントのまま進むと空のDBを作ってしまい、本番データが消えたように見えるため。
+# DATA_DIR 未設定 (ローカル開発) では従来どおり素通りする。
+if "DATA_DIR" in os.environ:
+    from .storage_guard import ensure_persistent_volume_ready
+
+    ensure_persistent_volume_ready(
+        DATA_DIR,
+        allow_empty=os.environ.get("ALLOW_EMPTY_DATA_DIR") == "1",
+    )
+
 UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 BACKUP_DIR = DATA_DIR / "backups"

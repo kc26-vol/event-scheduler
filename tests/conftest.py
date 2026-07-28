@@ -13,6 +13,9 @@ import pytest
 
 _TMP = tempfile.mkdtemp(prefix="event-scheduler-tests-")
 os.environ["DATA_DIR"] = _TMP
+# テストの DATA_DIR は毎回空の一時ディレクトリ。これは意図的なので、
+# 「空ボリューム = 未マウントかもしれない」とみなす起動時ガードを明示的に免除する。
+os.environ["ALLOW_EMPTY_DATA_DIR"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import Base, engine, SessionLocal  # noqa: E402
