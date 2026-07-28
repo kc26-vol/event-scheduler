@@ -146,7 +146,12 @@ def get_public_photo(filename: str, request: Request, db: Session = Depends(get_
     if not filepath.exists() or not filepath.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    return FileResponse(filepath)
+    # ファイル名は UUID なので同じ URL の中身は変わらない。
+    # 長期キャッシュさせて、2回目以降はリクエスト自体を発生させない。
+    return FileResponse(
+        filepath,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 # =========================================================================

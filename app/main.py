@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import UPLOAD_DIR
 from .database import Base, engine, SessionLocal
+from .http_cache import UploadStaticFiles, cache_control_for
 from .models import (
     Room, Session as SessionModel, LTTalk, Staff, StaffSkill,
     StaffPreferredSession, StaffAvailability, VenueMap, Assignment, Category, SessionGroup,
@@ -134,8 +135,10 @@ async def lifespan(app):
 
 app = FastAPI(title="Event Scheduler API", version="1.0.0", lifespan=lifespan)
 
-from starlette.middleware.gzip import GZipMiddleware
-app.add_middleware(GZipMiddleware, minimum_size=500)
+from .compression import SmartGZipMiddleware
+# level 9 は level 6 と圧縮率がほぼ同じで CPU だけ余計に食う。
+# 画像等は SmartGZipMiddleware 側で圧縮対象から外れる。
+app.add_middleware(SmartGZipMiddleware, minimum_size=500, compresslevel=6)
 
 app.add_middleware(
     CORSMiddleware,
@@ -392,14 +395,18 @@ class SPAStaticFiles(StaticFiles):
         from starlette.exceptions import HTTPException as StarletteHTTPException
 
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as e:
-            if e.status_code == 404:
-                return await super().get_response("index.html", scope)
-            raise
+            if e.status_code != 404:
+                raise
+            path = "index.html"
+            response = await super().get_response(path, scope)
+        if response.status_code in (200, 304):
+            response.headers["Cache-Control"] = cache_control_for(path)
+        return response
 
 
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+app.mount("/uploads", UploadStaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 # フロントエンドは Vite ビルド成果物 (frontend/dist) を配信する。
 # 未ビルドの場合は frontend/public (login.html 等の静的ファイルのみ) にフォールバック。

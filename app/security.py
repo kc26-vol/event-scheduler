@@ -32,16 +32,22 @@ class RateLimiter:
     def __init__(self):
         # path_prefix -> {ip -> _RateBucket}
         self._buckets: dict[str, dict[str, _RateBucket]] = defaultdict(dict)
-        # path_prefix -> (max_requests, window_seconds)
-        self._rules: list[tuple[str, int, int]] = []
+        # path_prefix -> (max_requests, window_seconds, exclude_prefixes)
+        self._rules: list[tuple[str, int, int, tuple[str, ...]]] = []
 
-    def add_rule(self, path_prefix: str, max_requests: int, window_seconds: int):
-        self._rules.append((path_prefix, max_requests, window_seconds))
+    def add_rule(
+        self,
+        path_prefix: str,
+        max_requests: int,
+        window_seconds: int,
+        exclude_prefixes: tuple[str, ...] = (),
+    ):
+        self._rules.append((path_prefix, max_requests, window_seconds, exclude_prefixes))
 
     def is_limited(self, path: str, client_ip: str) -> bool:
         now = time.time()
-        for prefix, max_req, window in self._rules:
-            if not path.startswith(prefix):
+        for prefix, max_req, window, excluded in self._rules:
+            if not path.startswith(prefix) or path.startswith(excluded):
                 continue
             buckets = self._buckets[prefix]
             bucket = buckets.get(client_ip)
@@ -77,7 +83,14 @@ rate_limiter.add_rule("/auth/verify", max_requests=5, window_seconds=60)
 rate_limiter.add_rule("/api/", max_requests=300, window_seconds=60)
 
 # Public API: 60 requests per 60 seconds per IP
-rate_limiter.add_rule("/public/api/", max_requests=60, window_seconds=60)
+# 画像は1ページの表示で数十枚まとめて取りに来るため、データ系の枠とは分ける。
+# (同じ枠だと、登壇者写真の多いページを2人が同時に開いただけで 429 になる)
+PUBLIC_PHOTO_PREFIX = "/public/api/photo/"
+rate_limiter.add_rule(
+    "/public/api/", max_requests=60, window_seconds=60,
+    exclude_prefixes=(PUBLIC_PHOTO_PREFIX,),
+)
+rate_limiter.add_rule(PUBLIC_PHOTO_PREFIX, max_requests=600, window_seconds=60)
 
 
 # ---------------------------------------------------------------------------
