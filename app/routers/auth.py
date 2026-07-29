@@ -130,4 +130,9 @@ async def logout():
     """Clear session cookie and redirect to login."""
     response = RedirectResponse(url="/login.html", status_code=302)
     response.delete_cookie(key=COOKIE_NAME)
+    # 一覧APIはブラウザのHTTPキャッシュに残る (app/api_cache.py が
+    # Cache-Control: private を付けている)。/api/staffs/ などには
+    # スタッフの個人情報が含まれるので、共用端末を想定してログアウト時に
+    # ブラウザ側の保存分も消させる。
+    response.headers["Clear-Site-Data"] = '"cache", "cookies"'
     return response

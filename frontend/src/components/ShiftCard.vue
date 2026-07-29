@@ -52,12 +52,12 @@ import { computed, ref } from 'vue'
 import TimeRange from './TimeRange.vue'
 import PersonChip from './PersonChip.vue'
 import { durationMin, humanDuration, untilText } from '../utils/datetime'
-import type { Session, Staff } from '../types'
+import type { SessionSummary, StaffBrief } from '../types'
 
 const props = withDefaults(defineProps<{
-    session: Session
+    session: SessionSummary
     /** 同じセッションに入る他のスタッフ (本人は除いて渡す) */
-    coStaff?: Staff[]
+    coStaff?: StaffBrief[]
     catLabel?: string
     accent?: string
     showDate?: boolean

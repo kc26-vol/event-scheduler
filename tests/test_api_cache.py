@@ -18,6 +18,8 @@ from app.api_cache import ApiCacheMiddleware
 
 
 CACHEABLE = "/api/assignments/schedule"
+# こちらも対象パス。ETag が資源ごとに分かれているかの比較に使う。
+NOT_CACHEABLE_BUT_TAGGED = "/api/rooms/"
 NOT_CACHEABLE = "/api/settings/"
 
 
@@ -51,6 +53,7 @@ def stub(monkeypatch):
 
     app = Starlette(routes=[
         Route(CACHEABLE, read_endpoint),
+        Route(NOT_CACHEABLE_BUT_TAGGED, read_endpoint),
         Route(NOT_CACHEABLE, read_endpoint),
         Route("/api/assignments/", write_endpoint, methods=["POST"]),
     ])
@@ -62,10 +65,41 @@ def test_対象パスには_ETag_と_CacheControl_が付く(stub):
     client, _, _ = stub
     r = client.get(CACHEABLE)
     assert r.status_code == 200
-    assert r.headers["etag"] == 'W/"v1"'
+    assert r.headers["etag"] == f'W/"{CACHEABLE}:v1"'
     assert "private" in r.headers["cache-control"]
     # 共有プロキシに載せない
     assert "public" not in r.headers["cache-control"]
+
+
+def test_既定では_maxage_を付けない(stub):
+    """max-age を入れると、更新後にブラウザが同じ URL を取り直しても
+    キャッシュから古い内容を返し、自分の更新が自分に見えなくなる。"""
+    client, _, _ = stub
+    cc = client.get(CACHEABLE).headers["cache-control"]
+    assert "no-cache" in cc
+    assert "max-age" not in cc
+
+
+def test_ETag_は資源ごとに別物(stub):
+    """版番号だけの ETag だと、別パスの検証子で 304 になってしまう。"""
+    client, _, _ = stub
+    etag_a = client.get(CACHEABLE).headers["etag"]
+    etag_b = client.get(NOT_CACHEABLE_BUT_TAGGED).headers["etag"]
+    assert etag_a != etag_b
+
+    # 他パスの ETag では 304 にならない
+    r = client.get(CACHEABLE, headers={"If-None-Match": etag_b})
+    assert r.status_code == 200
+
+
+def test_クエリ文字列付きはキャッシュしない(stub):
+    """対象8本は今は引数を取らないが、あとで絞り込みが足されたときに
+    「最初の1人の結果が全員に配られる」事故を防ぐ。"""
+    client, _, calls = stub
+    client.get(f"{CACHEABLE}?staff=1")
+    n = calls["n"]
+    client.get(f"{CACHEABLE}?staff=2")
+    assert calls["n"] == n + 1, "クエリ違いでキャッシュが共有されている"
 
 
 def test_対象外パスには_ETag_が付かない(stub):
@@ -146,6 +180,46 @@ def test_メモリキャッシュはTTLで作り直される(stub, monkeypatch):
     monkeypatch.setattr(api_cache, "MEMORY_TTL_SECONDS", 0.0)
     client.get(CACHEABLE)
     assert calls["n"] == 2
+
+
+def test_版番号の繰り上げに失敗したらキャッシュ配信を止める(db, monkeypatch, caplog):
+    """繰り上げに失敗すると DB の版番号が据え置かれる。そのまま動くと
+    他 worker はメモリのまま、ブラウザは古い ETag のまま 304 を受け取り、
+    「更新したのに反映されない」が延々続く。"""
+    from app.models import AppSetting
+
+    import app.database as database
+
+    api_cache.invalidate()
+    api_cache._degraded = False
+    db.add(AppSetting(key="data_version", value="500"))
+    db.commit()
+    assert api_cache._read_version() == 500
+
+    # 書き込みが必ず失敗する状況を作る。
+    # _degraded はこの関数自身が書き換えるので monkeypatch では管理しない
+    # (undo() で巻き戻され、検証したい状態が消えてしまう)。
+    original = database.SessionLocal
+
+    def exploding_session():
+        raise RuntimeError("disk I/O error")
+
+    database.SessionLocal = exploding_session
+    try:
+        with caplog.at_level("ERROR"):
+            assert api_cache.bump_version() == 0
+        assert "キャッシュ配信を停止" in caplog.text, "失敗が記録されていない"
+    finally:
+        database.SessionLocal = original
+
+    # degraded 中は据え置きの版番号を使わない -> メモリ命中も 304 も起きない
+    assert api_cache._degraded is True
+    assert api_cache._read_version() != 500, "失敗後も据え置きの版番号を使っている"
+
+    # 繰り上げが成功したら通常運転に戻る
+    assert api_cache.bump_version() > 500
+    assert api_cache._degraded is False
+    assert api_cache._read_version() > 500
 
 
 def test_他の_worker_が繰り上げた版番号を即座に見る(db):
