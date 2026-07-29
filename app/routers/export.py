@@ -47,6 +47,9 @@ CAT_LABELS_BASE = {
 
 PHOTO_PX = 48  # Excel内の写真サイズ (px)
 ROW_HEIGHT_WITH_PHOTO = 45  # 写真付き行の高さ (pt)
+# xlsx にそのまま入れられる画像形式 (PIL が返す format 名)。
+# これ以外は _photo_source で PNG に変換してから埋め込む。
+XLSX_NATIVE_FORMATS = frozenset({"PNG", "JPEG", "GIF", "BMP"})
 
 SLOT_MINUTES = 5  # 全体スケジュールの時間スロット（分）
 
@@ -99,17 +102,40 @@ def _auto_width(ws, max_rows=100):
         ws.column_dimensions[col_letter].width = min(max_len + 3, 50)
 
 
+def _photo_source(file_path: Path):
+    """埋め込みに渡す画像を返す。xlsx が扱える形式ならパス、それ以外は PNG に変換する。
+
+    openpyxl は PIL が判定した形式の拡張子でアーカイブに画像を入れ、保存時に
+    その拡張子から mimetypes でマイムタイプを引く (openpyxl の
+    packaging/manifest.py)。この参照にフォールバックが無いため、mimetypes が
+    知らない拡張子だと KeyError で Excel 出力全体が 500 になる。
+    .webp が標準の mimetypes に入ったのは Python 3.13 からで、本番の
+    Python 3.11 には無い。手元 (3.13) では再現しないので取りこぼしやすい。
+
+    判定は拡張子ではなく PIL が読んだ実際の形式で行う。拡張子は
+    アップロード時のファイル名由来で、中身と一致している保証がない。
+    """
+    with PILImage.open(file_path) as img:
+        if img.format in XLSX_NATIVE_FORMATS:
+            img.verify()  # 画像ファイルとして有効か確認
+            return str(file_path)
+        # 透過を保つため、アルファを持つ形式は RGBA のまま PNG にする
+        mode = "RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB"
+        buf = io.BytesIO()
+        img.convert(mode).save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
 def _add_photo(ws, photo_path: str, col: int, row: int):
-    """ワークシートのセルに元画像をそのまま埋め込む（セル内に収まるようリサイズ表示）"""
+    """ワークシートのセルに写真を埋め込む（セル内に収まるようリサイズ表示）"""
     file_path = upload_path(photo_path)
     if not file_path.exists():
         return
     try:
-        img = PILImage.open(file_path)
-        img.verify()  # 画像ファイルとして有効か確認
+        xl_img = XlImage(_photo_source(file_path))
     except Exception:
-        return
-    xl_img = XlImage(str(file_path))
+        return  # 壊れた画像や未対応形式は写真だけ諦め、出力自体は続ける
     xl_img.width = PHOTO_PX
     xl_img.height = PHOTO_PX
     cell_ref = f"{get_column_letter(col)}{row}"
