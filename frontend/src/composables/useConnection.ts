@@ -32,33 +32,47 @@ if (typeof window !== 'undefined') {
 /**
  * API 応答を1件見て状態を更新する。
  *
- * SW のキャッシュから返ってきた場合は「取得できた」とは数えない。
- * 数えてしまうと、オフラインのまま画面を切り替えるたびに「最終更新: たった今」に
- * なり、表示が嘘になる。代わりにキャッシュに刻まれた取得時刻を採用する
- * (オフラインでリロードした直後は、これが唯一の手がかりになる)。
+ * **成功した応答で online に戻すことはしない。** 応答が来たことは「サーバーに
+ * 届いた」ことを意味しないため。max-age=180 のブラウザ HTTP キャッシュ
+ * (app/api_cache.py) が答えれば、サーバーが落ちていても fetch は成功する。
+ * これを復帰と見なすと、切れている最中に「オンラインに復帰しました」と出る。
+ *
+ * online に戻せるのは noteReachable() だけ = キャッシュが答えられない疎通確認
+ * だけ、と決めている。既定値は online なので、通常の起動では何もしなくてよい。
  */
 export function noteResponse(res: Response): void {
     const stamped = Number(res.headers.get(H_CACHED_AT))
     const producedAt = Number.isFinite(stamped) && stamped > 0 ? stamped : null
 
+    // Service Worker が自分のキャッシュから答えた = ネットワークには出られていない
     if (res.headers.get(H_FROM_CACHE)) {
         _online.value = false
-        // 進めるだけ。オフライン中に古い資源を引いても表示を巻き戻さない
-        if (producedAt !== null && producedAt > (_lastSyncAt.value ?? 0)) {
-            _lastSyncAt.value = producedAt
-        }
-        return
+    } else if (!res.ok) {
+        return  // 401 や 500 は「つながってはいる」ので鮮度の話ではない
     }
-    if (!res.ok) return  // 401 や 500 は「つながってはいる」のでオフライン判定には使わない
-    _online.value = true
-    // Service Worker が本文の鮮度を刻んでくれている場合はそれを使う。
-    // ブラウザの HTTP キャッシュ (max-age) が答えた分だけ、受信時刻より古い。
-    _lastSyncAt.value = producedAt ?? Date.now()
+
+    // 鮮度だけは進める。Service Worker が本文の作られた時刻を刻んでくれている
+    // 場合はそれを使う (ブラウザの HTTP キャッシュが答えた分だけ受信時刻より古い)。
+    // 進める方向にしか動かさない — オフライン中に古い資源を引いて表示が
+    // 巻き戻るのを避けるため。
+    const at = producedAt ?? (_online.value ? Date.now() : null)
+    if (at !== null && at > (_lastSyncAt.value ?? 0)) _lastSyncAt.value = at
 }
 
 /** fetch そのものが失敗した = ネットワークに出られなかった。 */
 export function noteFailure(): void {
     _online.value = false
+}
+
+/**
+ * サーバーまで届いたことが確かめられた (ConnectionToast.vue の疎通確認)。
+ *
+ * 応答の内容は問わない。401 が返ったとしても「つながっている」ことは確かで、
+ * それはオフラインとは別の問題 (セッション切れ) である。
+ * lastSyncAt は触らない — 疎通の確認は、表示中のデータを新しくしない。
+ */
+export function noteReachable(): void {
+    _online.value = true
 }
 
 export function useConnection() {
@@ -67,3 +81,4 @@ export function useConnection() {
         lastSyncAt: readonly(_lastSyncAt),
     }
 }
+

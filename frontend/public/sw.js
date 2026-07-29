@@ -143,21 +143,18 @@ function producedAt(res) {
     return now - Math.min(Math.max(now - date, 0), cap)
 }
 
-/* 直近にネットワークで失敗したか。
+/* 疎通確認は素通しさせる。
  *
- * HTTP キャッシュが応えた場合、SW から見ると fetch は普通に成功する。
- * 外に出られたのか、手元のキャッシュが答えたのかを区別できない。
- * このままだと圏外で開いても最大 max-age 秒のあいだ「オンライン」に見え、
- * オフラインの知らせがその分遅れる。
+ * 「今つながっているか」は、どのキャッシュにも答えられない要求でしか確かめられない。
+ * 画面側 (ConnectionToast.vue) はこの印を付けた URL で確認するので、
+ * ここで捕まえてはいけない。捕まえてキャッシュから答えると、切れたままなのに
+ * 「復帰した」と誤判定する。
  *
- * そこで別の要求で起きた失敗を手掛かりにする。圏外で開いたときは、まず
- * ナビゲーション自体が失敗する。その直後に成功して見える取得は、
- * ネットワークではなくキャッシュが答えたものと見なせる。 */
-let _failedAt = 0
-const OFFLINE_HINT_MS = 10_000
-
-function noteNetworkFailure() { _failedAt = Date.now() }
-function offlineHinted() { return Date.now() - _failedAt < OFFLINE_HINT_MS }
+ * かつては逆に「直近の失敗」を手掛かりにして、成功した応答をキャッシュ由来と
+ * 見なす仕組みを置いていた。オフライン検知を早めるためだったが、成功しても窓が
+ * 閉じないため、復帰しても「オフライン」から抜け出せなくなった (顔写真の取得失敗
+ * などが窓を開き続ける)。表示の遅れを詰めるために機能を壊していたので外した。 */
+const PING_PARAM = 'es_ping'
 
 // ---------------------------------------------------------------------------
 // ライフサイクル
@@ -229,7 +226,7 @@ async function warmOne(cache, url) {
             [H_CACHED_AT]: String(producedAt(res)),
         }))
     } catch (e) {
-        noteNetworkFailure()
+        /* オンラインでないなら次の起動でまた試す */
     }
 }
 
@@ -253,7 +250,7 @@ async function warmVenueMapImages(dataCache) {
             const res = await fetch(url, { credentials: 'same-origin' })
             if (isStorable(url, res)) await media.put(url, rebuild(res, await res.arrayBuffer()))
         } catch (e) {
-            noteNetworkFailure()
+            /* 1枚落ちても残りは試す */
         }
     }
 }
@@ -272,7 +269,8 @@ async function cacheFirst(request, cacheName) {
         if (isStorable(request.url, res)) await cache.put(request, rebuild(res, await res.clone().arrayBuffer()))
         return res
     } catch (err) {
-        noteNetworkFailure()
+        // キャッシュに無いものはオフラインでは出せない。画像なら AvatarIcon が
+        // イニシャル表示に落ち、チャンクなら再訪時に取り直される。
         throw err
     }
 }
@@ -287,13 +285,12 @@ async function dataNetworkFirst(request) {
         const body = await res.clone().arrayBuffer()
         const stamp = { [H_CACHED_AT]: String(producedAt(res)) }
         await cache.put(request, rebuild(res, body, stamp))
-        // 直前にネットワークで失敗している = これはどこかのキャッシュが答えた
-        if (offlineHinted()) return rebuild(res, body, { ...stamp, [H_FROM_CACHE]: '1' })
         // 成功時も刻んだものを返す。画面が「最終更新」に使う時刻を、
         // HTTP キャッシュ経由かどうかに関わらず本文の実際の鮮度に合わせるため。
         return rebuild(res, body, stamp)
     } catch (err) {
-        noteNetworkFailure()
+        // ここに来たときだけ「キャッシュから返した」と印を付ける。
+        // 成功した応答に推測で印を付けてはいけない (画面が復帰を認識できなくなる)。
         const hit = await cache.match(request)
         if (hit) return rebuild(hit, await hit.arrayBuffer(), { [H_FROM_CACHE]: '1' })
         throw err
@@ -305,7 +302,6 @@ async function navigate(request) {
     try {
         return await fetch(request)
     } catch (err) {
-        noteNetworkFailure()
         const cache = await caches.open(SHELL_CACHE)
         const hit = await cache.match(SHELL_FALLBACK)
         if (hit) return hit
@@ -322,6 +318,9 @@ self.addEventListener('fetch', (event) => {
 
     const url = new URL(request.url)
     if (url.origin !== self.location.origin) return
+
+    // 疎通確認。キャッシュが答えると意味を失うので何もしない (上の PING_PARAM)。
+    if (url.searchParams.has(PING_PARAM)) return
 
     if (request.mode === 'navigate') {
         event.respondWith(navigate(request))

@@ -22,6 +22,7 @@ from app.http_cache import REVALIDATE, cache_control_for
 
 ROOT = Path(__file__).resolve().parents[1]
 SW_JS = ROOT / "frontend" / "public" / "sw.js"
+TOAST_VUE = ROOT / "frontend" / "src" / "components" / "ConnectionToast.vue"
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +177,43 @@ def test_manifestのアプリ名はDBの設定を反映する(client):
 def test_SWは毎回再検証させる(path):
     """ここが長期キャッシュになると、SW の更新が端末に届かなくなる。"""
     assert cache_control_for(path) == REVALIDATE
+
+
+def test_疎通確認はキャッシュに答えさせない():
+    """オフラインから復帰できなくなる事故の再発防止。
+
+    「今つながっているか」は、どのキャッシュにも答えられない要求でしか
+    確かめられない。Service Worker が疎通確認まで捕まえてキャッシュから
+    答えると、切れたままなのに「復帰した」と誤判定する。逆に、成功した応答を
+    推測でキャッシュ由来と印を付けると、復帰しても「オフライン」から
+    抜け出せなくなる (実際にそうなった)。
+
+    そのため sw.js には
+      1. 疎通確認の印 (es_ping) が付いた要求を素通しする分岐があり、
+      2. キャッシュ由来の印を付けるのは fetch が失敗した経路だけ
+    という2点を保つ。
+    """
+    src = SW_JS.read_text(encoding="utf-8")
+
+    # 1. 素通しの分岐が、キャッシュを見に行くどの分岐よりも前にあること。
+    #    画面側 (ConnectionToast.vue) が使う印と綴りが一致していること。
+    assert "const PING_PARAM = 'es_ping'" in src, "疎通確認の印が sw.js に無い"
+    assert "es_ping" in TOAST_VUE.read_text(encoding="utf-8"), "画面側の印と食い違っている"
+
+    handler = src[src.index("addEventListener('fetch'"):]
+    ping_at = handler.index("PING_PARAM")
+    for later in ("/assets/", "/uploads/", "DATA_PATHS.has"):
+        assert ping_at < handler.index(later), f"疎通確認の分岐が {later} より後ろにある"
+
+    # 2. キャッシュ由来の印は catch の中だけ。成功経路に書くと復帰できなくなる
+    data_fn = src[src.index("async function dataNetworkFirst"):]
+    data_fn = data_fn[:data_fn.index("\n}")]
+    success, _, failure = data_fn.partition("} catch (err) {")
+    assert "H_FROM_CACHE" not in success, "成功した応答にキャッシュ由来の印を付けている"
+    assert "H_FROM_CACHE" in failure, "キャッシュから返したときの印が無い"
+
+    # かつて使っていた「直近の失敗を手掛かりにする」推測が復活していないこと
+    assert "offlineHinted" not in src
 
 
 def _sw_data_paths() -> set[str]:
