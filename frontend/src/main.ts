@@ -22,3 +22,20 @@ router.afterEach((to) => {
 })
 
 app.mount('#app')
+
+/* Service Worker の登録 (本番ビルドのみ)。
+ *
+ * 開発サーバーでは登録しない。Vite は変換結果を都度返すので、SW が挟まると
+ * 「直したのに直らない」を疑う時間が増えるだけで得がない。
+ * また precache の一覧はビルドで生成されるため、開発時には存在しない。
+ *
+ * mount の後、さらに load を待ってから登録する。install の precache は
+ * 全アセットを取りに行くので、初回表示に必要な通信と取り合わせたくない。 */
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch((err) => {
+            // 登録できなくてもオンラインでは普通に動く。オフライン対応だけが無効になる。
+            console.warn('[sw] 登録できませんでした', err)
+        })
+    })
+}

@@ -74,6 +74,9 @@
     <!-- 初回アクセス時の本人選択 -->
     <IdentityGate v-if="needsIdentity" />
 
+    <!-- 通信が切れているあいだ、右下に状態と最終更新を出す -->
+    <ConnectionToast />
+
     <div v-if="gridMenu.show" style="position:fixed;inset:0;z-index:150" @click="gridMenu.show=false">
         <div :style="{position:'fixed', left: gridMenu.x+'px', top: gridMenu.y+'px', background:'#fff', borderRadius:'8px', boxShadow:'0 4px 24px rgba(0,0,0,0.18)', padding:'4px 0', minWidth:'120px', zIndex:151}"
              @click.stop>
@@ -233,6 +236,7 @@ import SearchSelect from './components/SearchSelect.vue'
 import IdentityGate from './components/IdentityGate.vue'
 import SidebarMe from './components/SidebarMe.vue'
 import SessionHandoff from './components/SessionHandoff.vue'
+import ConnectionToast from './components/ConnectionToast.vue'
 import { dateKey } from './utils/datetime'
 
 const route = useRoute()
@@ -242,7 +246,25 @@ onMounted(async () => {
     // リロード時など初期ルートに応じたデータロードを保証する
     const name = routeToTab(route)
     if (name) await enterTab(name)
+    warmOfflineCache()
 })
+
+/* オフライン用のキャッシュの穴を Service Worker に埋めてもらう。
+ *
+ * 初期ロードは今の画面に必要なものしか取らないため、会場地図のように
+ * 「開くまで取らない」データはオフラインで読み込み中のまま止まる。
+ * 何を埋めるかは Service Worker 側が持っている (frontend/public/sw.js)。
+ *
+ * 初期表示に必要な通信が終わったあとに呼ぶ。順序を逆にすると、
+ * 一番見たい画面の表示が先読みの通信に待たされる。 */
+function warmOfflineCache() {
+    if (!('serviceWorker' in navigator)) return
+    // ready は「有効な Service Worker がある」まで待つ。開発サーバーでは
+    // 登録しないので解決せず、そのまま何も起きない (main.ts を参照)。
+    navigator.serviceWorker.ready
+        .then(reg => reg.active?.postMessage({ type: 'ES_WARM' }))
+        .catch(() => { /* 先読みができないだけで、オンラインの動作には影響しない */ })
+}
 
 const {
     tab, sidebarOpen, appTitle, sessionGroups, categories, switchTab, overallRoomId,

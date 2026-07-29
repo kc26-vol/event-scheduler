@@ -65,6 +65,27 @@ export function humanDuration(minutes: number | null): string {
 }
 
 /**
+ * 過去方向の相対表現。"たった今" / "12分前" / "3時間前" / "7/29 14:05"。
+ *
+ * 1日以上前は相対表現をやめる。「28時間前」と言われても、それが今日の朝か
+ * 昨日の夜かを頭で戻す手間が増えるだけなので、日付と時刻をそのまま出す。
+ */
+export function agoText(target: number | string | Date | null | undefined, now: Date): string {
+    const d = target === null || target === undefined
+        ? null
+        : toDate(typeof target === 'number' ? new Date(target) : target)
+    if (!d) return ''
+    const diffSec = Math.round((now.getTime() - d.getTime()) / 1000)
+    // 端末の時計が進んでいる場合など、未来を指していたら「たった今」に丸める
+    if (diffSec < 60) return 'たった今'
+    const diffMin = Math.floor(diffSec / 60)
+    if (diffMin < 60) return `${diffMin}分前`
+    const h = Math.floor(diffMin / 60)
+    if (h < 24) return `${h}時間前`
+    return `${md(d)} ${hhmm(d)}`
+}
+
+/**
  * 現在時刻との相対表現。
  * 未来なら "あと25分" / "あと2時間"、過去なら "" を返す。
  */
