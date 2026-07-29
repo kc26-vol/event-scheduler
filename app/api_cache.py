@@ -25,27 +25,30 @@ gunicorn を複数 worker で動かす場合、メモリキャッシュは worke
 独立するが、版番号は DB にあるため無効化は全 worker に伝わる。
 伝播の遅れは最大 _VERSION_TTL 秒。
 
-## max-age を既定で 0 にしている理由
+## max-age (3) の扱い
 
 `max-age` を入れると、その間ブラウザはサーバーへ問い合わせない。これは
-サーバー側から取り消せないので、1 と 2 の無効化が一切届かなくなる。
+サーバー側から取り消せない。RFC 9111 §4.4 では、更新系が無効化するのは
+「そのリクエスト先の URI」だけで、POST /api/assignments/ は
+GET /api/assignments/schedule を無効化しないためである。つまり 1 と 2 の
+無効化は、リクエストが飛ばない以上どうやっても届かない。
 
-実際に 300 秒で試したところ、**自分の更新が自分に見えなくなった**。
-SPA は更新後に同じ URL を取り直すため (frontend/src/store.ts の
-addAssignment -> loadSchedule)、ブラウザは新鮮なキャッシュをそのまま返す:
+結果として 2つの別々のことが起きる。
 
-    POST /api/assignments/        -> 201 (サーバー側は正しく反映)
-    GET  /api/assignments/schedule -> ブラウザキャッシュから配置前の内容
-    実測: 配置 940 件 -> POST 成功 -> 再取得しても 940 件のまま
+- **読むだけの人への反映が最大 max-age 秒遅れる** … 運用上の許容判断。
+  既定 180 秒はこれを承知のうえで置いている。
+- **編集した本人に見えない** … こちらは許容できない。SPA は更新後に同じ
+  URL を取り直すため (store.ts の addAssignment -> loadSchedule)、
+  ブラウザは新鮮なキャッシュをそのまま返す。実測:
 
-RFC 9111 §4.4 では、更新系が無効化するのは「そのリクエスト先の URI」だけ。
-POST /api/assignments/ は GET /api/assignments/schedule を無効化しない。
+      POST /api/assignments/         -> 201 (サーバー側は正しく反映)
+      GET  /api/assignments/schedule -> 配置 940 件のまま (POST 前の内容)
 
-1 と 2 は正しさを損なわずに効く (実測 48ms -> 1.5ms) ので、既定では
-max-age を使わず毎回 ETag で検証する。往復は残るが本文は流れない。
+  これは frontend/src/store.ts 側で、更新系を叩いた直後の取得に
+  cache:'reload' を付けることで取り除いてある。
 
-API_CACHE_SECONDS に秒数を入れれば max-age を付けられる。ただし上記の
-とおり編集フローが壊れるので、入れるなら更新がほぼ起きない資源に限る。
+API_CACHE_SECONDS=0 にすると max-age を外し、毎回 ETag で検証する
+(常に最新。往復は残るが本文は流れない)。
 
 ## private を付ける理由
 
@@ -65,11 +68,16 @@ from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
 
-# ブラウザに許す max-age。既定 0 = 毎回 ETag で検証する (上の説明を参照)。
+# ブラウザに許す max-age。既定 180 秒。
+# 「読むだけの人への反映が最大3分遅れる」ことは運用上許容する判断。
+# 「編集した本人に見えない」ほうはフロント側で取り除いてある
+# (frontend/src/store.ts の更新直後キャッシュ迂回)。
+# 0 にすると max-age を外し、毎回 ETag で検証する。
+_DEFAULT_SECONDS = 180
 try:
-    CACHE_SECONDS = int(os.environ.get("API_CACHE_SECONDS", "0"))
+    CACHE_SECONDS = int(os.environ.get("API_CACHE_SECONDS", str(_DEFAULT_SECONDS)))
 except ValueError:
-    CACHE_SECONDS = 0
+    CACHE_SECONDS = _DEFAULT_SECONDS
 
 # プロセス内キャッシュの保持時間。版番号で無効化されるので正しさには
 # 影響しない (使わなくなったエントリを抱え続けないための上限)。

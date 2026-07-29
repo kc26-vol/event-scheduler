@@ -71,10 +71,20 @@ def test_対象パスには_ETag_と_CacheControl_が付く(stub):
     assert "public" not in r.headers["cache-control"]
 
 
-def test_既定では_maxage_を付けない(stub):
-    """max-age を入れると、更新後にブラウザが同じ URL を取り直しても
-    キャッシュから古い内容を返し、自分の更新が自分に見えなくなる。"""
+def test_CacheControl_は設定値に従う(stub, monkeypatch):
+    """既定は max-age=180。0 にすると毎回 ETag で検証する形になる。
+
+    max-age 中は「読むだけの人への反映が遅れる」。これは許容した判断で、
+    「編集した本人に見えない」ほうは frontend/src/store.ts が
+    更新直後の取得に cache:'reload' を付けることで取り除いている。"""
     client, _, _ = stub
+
+    monkeypatch.setattr(api_cache, "CACHE_SECONDS", 180)
+    cc = client.get(CACHEABLE).headers["cache-control"]
+    assert "max-age=180" in cc
+    assert "private" in cc
+
+    monkeypatch.setattr(api_cache, "CACHE_SECONDS", 0)
     cc = client.get(CACHEABLE).headers["cache-control"]
     assert "no-cache" in cc
     assert "max-age" not in cc

@@ -8,6 +8,45 @@ import type {
     AutoBackupEntry, PublishSnapshot,
 } from './types'
 
+/* --- 更新直後だけブラウザキャッシュを迂回する ---
+ *
+ * 一覧APIには Cache-Control: max-age が付いている (app/api_cache.py)。
+ * 読むだけの人にとってはこれで往復が消えて速いが、編集する人には困る:
+ * 更新後にこのストアは同じURLを取り直すため (例 addAssignment -> loadSchedule)、
+ * 新鮮なキャッシュがあるとネットワークに出ず、自分の更新が自分に見えない。
+ *
+ * HTTP には「別URLのキャッシュを無効化する」手段がない。RFC 9111 §4.4 で
+ * 更新系が無効化するのは、そのリクエスト先のURIだけと決まっている
+ * (POST /api/assignments/ は GET /api/assignments/schedule を無効化しない)。
+ * サーバー側の ETag も、リクエストが飛ばない以上は届かない。
+ *
+ * そこで、更新系を叩いたら短い間だけ取得系に cache:'reload' を付ける。
+ * 60箇所ある更新系すべてに手を入れる代わりにここ1箇所で捕まえているので、
+ * あとから更新系が増えても自動的に守られる。
+ *
+ * 「他の人への反映が最大 max-age 秒遅れる」ことは許容した上での対応で、
+ * 「自分の編集が自分に見えない」だけを取り除いている。 */
+const MUTATION_BYPASS_MS = 15_000
+let _bypassUntil = 0
+
+if (typeof window !== 'undefined' && !(window as any).__esCacheBypassInstalled) {
+    ;(window as any).__esCacheBypassInstalled = true
+    const originalFetch = window.fetch.bind(window)
+    window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
+        const url = typeof input === 'string' ? input : (input as Request).url ?? String(input)
+        const method = (init?.method ?? (input as Request)?.method ?? 'GET').toUpperCase()
+        if (url.includes('/api/')) {
+            if (method !== 'GET') {
+                _bypassUntil = Date.now() + MUTATION_BYPASS_MS
+            } else if (Date.now() < _bypassUntil) {
+                // reload = キャッシュを読まずに取りに行く (結果は保存する)
+                init = { ...init, cache: 'reload' }
+            }
+        }
+        return originalFetch(input, init)
+    }
+}
+
 type Store = ReturnType<typeof _createStore>
 
 let _store: Store | null = null
