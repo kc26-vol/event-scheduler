@@ -144,7 +144,7 @@ import { useStore } from '../store'
 import { useMe } from '../composables/useMe'
 import { useShiftsOf } from '../composables/useShifts'
 import { dateKey, mdw, durationMin, humanDuration, toDate } from '../utils/datetime'
-import type { Session, Staff } from '../types'
+import type { SessionSummary, StaffBrief } from '../types'
 
 const { schedule, loaded, catLabel, CAT_BG, toggleSessionDetail } = useStore()
 const { viewing, viewingStaffId, isViewingSelf, myStaffId, viewAs, backToMe } = useMe()
@@ -185,7 +185,7 @@ const viewingRoles = computed(() => {
 
 /* --- 日程ごとにまとめる --- */
 const days = computed(() => {
-    const map = new Map<string, Session[]>()
+    const map = new Map<string, SessionSummary[]>()
     for (const s of shifts.value) {
         const k = dateKey(s.start_time)
         if (!k) continue
@@ -212,7 +212,7 @@ const daySummary = computed(() => {
 
 /* --- タイムライン (担当と空き時間を交互に並べる) --- */
 type TimelineItem =
-    | { kind: 'shift'; session: Session }
+    | { kind: 'shift'; session: SessionSummary }
     | { kind: 'gap'; minutes: number }
 
 const GAP_THRESHOLD_MIN = 15  // これ未満は「空き」として出すほどでもない
@@ -273,7 +273,7 @@ function selectDay(key: string) {
     nextTick(() => timelineEl.value?.scrollIntoView({ block: 'start' }))
 }
 
-function stateOf(s: Session): 'past' | 'now' | 'next' | 'future' {
+function stateOf(s: SessionSummary): 'past' | 'now' | 'next' | 'future' {
     const t = now.value.getTime()
     const st = toDate(s.start_time)?.getTime()
     const en = toDate(s.end_time)?.getTime()
@@ -284,7 +284,7 @@ function stateOf(s: Session): 'past' | 'now' | 'next' | 'future' {
 }
 
 /* --- 同じセッションに入る他のスタッフ --- */
-function coStaffOf(session: Session): Staff[] {
+function coStaffOf(session: SessionSummary): StaffBrief[] {
     // 「全員」対象のセッションで全スタッフを並べても情報にならないので出さない
     if (session.required_staff === -1) return []
     const entry = schedule.value.find(e => e.session.id === session.id)
@@ -294,11 +294,11 @@ function coStaffOf(session: Session): Staff[] {
         .filter(s => s.id !== viewingStaffId.value)
 }
 
-function labelFor(session: Session): string {
+function labelFor(session: SessionSummary): string {
     return session.required_staff === -1 ? `${catLabel(session.category)} · 全員` : catLabel(session.category)
 }
 
-function accentFor(session: Session): string {
+function accentFor(session: SessionSummary): string {
     return CAT_BG.value[session.category]?.borderColor || 'var(--c-primary)'
 }
 

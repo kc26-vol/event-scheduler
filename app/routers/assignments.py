@@ -16,7 +16,10 @@ from ..schemas import (
     StaffScheduleResponse,
     StaffScheduleEntry,
     SessionResponse,
+    SessionSummary,
     StaffResponse,
+    StaffBrief,
+    StaffWithAvailability,
 )
 from ..utils import is_staff_available as _is_available
 
@@ -103,7 +106,13 @@ router = APIRouter(prefix="/api/assignments", tags=["assignments"])
 
 @router.get("/schedule", response_model=ScheduleResponse)
 def get_full_schedule(db: Session = Depends(get_db)):
-    """セッション一覧と各セッションに割り当てられたスタッフを返す"""
+    """セッション一覧と各セッションに割り当てられたスタッフを返す。
+
+    ここで返すスタッフは StaffBrief (希望セッション・活動可能時間なし)。
+    以前は完全な StaffResponse を返しており、1人あたり約 15KB の
+    preferred_sessions が配置件数ぶん重複して 11MB になっていた。
+    スタッフの全項目が必要な画面は /api/staffs/ を見ている。
+    """
     sessions = (
         db.query(SessionModel)
         .options(
@@ -114,20 +123,38 @@ def get_full_schedule(db: Session = Depends(get_db)):
         .order_by(SessionModel.start_time)
         .all()
     )
+    # 同じスタッフが何度も配置されるので、変換結果を使い回す
+    brief_cache: dict[int, StaffBrief] = {}
+
+    def _brief(staff) -> StaffBrief:
+        cached = brief_cache.get(staff.id)
+        if cached is None:
+            cached = StaffBrief.from_staff(staff)
+            brief_cache[staff.id] = cached
+        return cached
+
     entries = []
     for s in sessions:
-        assigned = [AssignedStaffEntry(assignment_id=a.id, staff=a.staff) for a in s.assignments]
+        assigned = [AssignedStaffEntry(assignment_id=a.id, staff=_brief(a.staff)) for a in s.assignments]
         entries.append(ScheduleEntry(session=s, assigned_staff=assigned))
     return ScheduleResponse(schedule=entries)
 
 
 @router.get("/staff-schedule", response_model=StaffScheduleResponse)
 def get_staff_schedule(db: Session = Depends(get_db)):
-    """スタッフごとの担当セッション一覧を返す"""
+    """スタッフごとの担当セッション一覧を返す。
+
+    セッションは SessionSummary (本文・登壇者プロフィール・LT一覧なし)。
+    この画面が読むのは時刻・タイトル・部屋・必要人数だけで、本文は
+    セッション詳細モーダルが /api/sessions/ 側から引く。
+    """
     staffs = (
         db.query(Staff)
         .options(
             joinedload(Staff.skills),
+            # availabilities はレスポンスに含めるので明示的に読む
+            # (指定しないと直列化のたびに遅延ロードが走る)
+            joinedload(Staff.availabilities),
             joinedload(Staff.assignments).joinedload(Assignment.session).joinedload(SessionModel.room),
         )
         .all()
@@ -135,7 +162,10 @@ def get_staff_schedule(db: Session = Depends(get_db)):
     entries = []
     for st in staffs:
         assigned_sessions = sorted([a.session for a in st.assignments], key=lambda s: s.start_time)
-        entries.append(StaffScheduleEntry(staff=st, assigned_sessions=assigned_sessions))
+        entries.append(StaffScheduleEntry(
+            staff=StaffWithAvailability.from_staff(st),
+            assigned_sessions=[SessionSummary.model_validate(s) for s in assigned_sessions],
+        ))
     return StaffScheduleResponse(staff_assignments=entries)
 
 

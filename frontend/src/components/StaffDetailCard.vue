@@ -52,7 +52,7 @@ import ShiftCard from './ShiftCard.vue'
 import TimeRange from './TimeRange.vue'
 import { useStore } from '../store'
 import { dateKey, mdw } from '../utils/datetime'
-import type { Session, Staff, StaffScheduleEntry } from '../types'
+import type { SessionSummary, StaffBrief, StaffScheduleEntry } from '../types'
 
 const props = withDefaults(defineProps<{
     entry: StaffScheduleEntry
@@ -69,7 +69,7 @@ const roles = computed(() => {
 })
 
 const days = computed(() => {
-    const map = new Map<string, Session[]>()
+    const map = new Map<string, SessionSummary[]>()
     const sorted = [...props.entry.assigned_sessions].sort((a, b) =>
         (a.start_time || '').localeCompare(b.start_time || '')
     )
@@ -86,7 +86,7 @@ const days = computed(() => {
         .map(([key, sessions]) => ({ key, label: mdw(sessions[0].start_time), sessions }))
 })
 
-function coStaffOf(session: Session): Staff[] {
+function coStaffOf(session: SessionSummary): StaffBrief[] {
     // 「全員」対象は全スタッフを並べても情報にならないので出さない
     if (session.required_staff === -1) return []
     const e = schedule.value.find(x => x.session.id === session.id)
@@ -94,11 +94,11 @@ function coStaffOf(session: Session): Staff[] {
     return e.assigned_staff.map(a => a.staff).filter(s => s.id !== props.entry.staff.id)
 }
 
-function labelFor(session: Session): string {
+function labelFor(session: SessionSummary): string {
     return session.required_staff === -1 ? `${catLabel(session.category)} · 全員` : catLabel(session.category)
 }
 
-function accentFor(session: Session): string {
+function accentFor(session: SessionSummary): string {
     return CAT_BG.value[session.category]?.borderColor || 'var(--c-primary)'
 }
 </script>

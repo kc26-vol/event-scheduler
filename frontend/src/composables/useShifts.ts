@@ -6,7 +6,7 @@
 import { computed, onScopeDispose, ref, type Ref } from 'vue'
 import { useStore } from '../store'
 import { toDate } from '../utils/datetime'
-import type { Session } from '../types'
+import type { SessionSummary } from '../types'
 
 // 現在時刻はアプリ全体で1本。コンポーネントごとに setInterval を持つと
 // 更新タイミングが数十秒ずれ、画面の中で状態が食い違う。
@@ -38,7 +38,7 @@ export function useShiftsOf(staffId: Ref<number | null>) {
     const now = useNow()
 
     /** 開始時刻順。「全員」対象の全体セッションもマージ済みのものを使う。 */
-    const shifts = computed<Session[]>(() => {
+    const shifts = computed<SessionSummary[]>(() => {
         const id = staffId.value
         if (id === null) return []
         const entry = staffAssignmentsWithAll.value.find(e => e.staff.id === id)

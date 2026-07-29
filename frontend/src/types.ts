@@ -76,7 +76,9 @@ export interface StaffPreferredSession {
     id: number
     session_id: number
     priority: number
-    session: Session | null
+    /* 表示に使うのは開始時刻とタイトルだけなので、API 側も絞ってある。
+       宣言の直後に SessionBrief を定義しているため型は後方参照になる。 */
+    session: SessionBrief | null
 }
 
 export interface StaffAvailability {
@@ -109,9 +111,40 @@ export interface Assignment {
     staff: Staff | null
 }
 
+/* 一覧に埋め込まれるスタッフ / セッションは、本体より項目が少ない。
+ *
+ * 以前は完全な Staff / Session をそのまま埋め込んでいたが、希望セッションに
+ * 各セッションの本文が丸ごと入るため、/api/assignments/schedule が 11MB に
+ * なっていた (実データ)。画面が読む項目だけを返すよう API 側を絞ってある
+ * (app/schemas.py の StaffBrief / SessionSummary 等)。
+ *
+ * ここを Staff / Session のままにしておくと、型は通るのに実行時 undefined、
+ * という形で事故る。API の形に合わせて別の型として書いておく。 */
+
+/** 配置一覧のチップ用。希望セッション・活動可能時間は入っていない。 */
+export type StaffBrief = Omit<Staff, 'preferred_sessions' | 'availabilities'>
+
+/** スタッフ別担当表用。活動可能時間は画面に出るので入っている。 */
+export type StaffWithAvailability = StaffBrief & {
+    availabilities: StaffAvailability[]
+}
+
+/** 埋め込み用の軽いセッション。本文・登壇者プロフィール・LT一覧は入っていない。 */
+export type SessionBrief = Pick<
+    Session,
+    'id' | 'title' | 'start_time' | 'end_time' | 'room_id' | 'category'
+>
+
+/** 担当カードの描画に必要な項目まで含む。本文系は入っていない。 */
+export type SessionSummary = SessionBrief & Pick<
+    Session,
+    'speaker' | 'speaker_org' | 'speaker_title'
+    | 'required_staff' | 'english_required' | 'group_id' | 'room'
+>
+
 export interface AssignedStaffEntry {
     assignment_id: number
-    staff: Staff
+    staff: StaffBrief
 }
 
 export interface ScheduleEntry {
@@ -120,8 +153,8 @@ export interface ScheduleEntry {
 }
 
 export interface StaffScheduleEntry {
-    staff: Staff
-    assigned_sessions: Session[]
+    staff: StaffWithAvailability
+    assigned_sessions: SessionSummary[]
 }
 
 // 設定画面などで使う補助型

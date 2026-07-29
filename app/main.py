@@ -146,6 +146,14 @@ async def lifespan(app):
 
 app = FastAPI(title="Event Scheduler API", version="1.0.0", lifespan=lifespan)
 
+# add_middleware は「後から足したものほど外側」になる。
+# ApiCache を先に足すことで gzip より内側に来る = 非圧縮の本文をキャッシュし、
+# 圧縮は Accept-Encoding を見る外側の gzip に任せられる。
+#
+# 読み取り専用 API のプロセス内キャッシュと ETag。詳細は app/api_cache.py。
+from .api_cache import ApiCacheMiddleware
+app.add_middleware(ApiCacheMiddleware)
+
 from .compression import SmartGZipMiddleware
 # level 9 は level 6 と圧縮率がほぼ同じで CPU だけ余計に食う。
 # 画像等は SmartGZipMiddleware 側で圧縮対象から外れる。
