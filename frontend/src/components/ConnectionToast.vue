@@ -33,7 +33,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useConnection } from '../composables/useConnection'
+import { noteReachable, useConnection } from '../composables/useConnection'
 import { useNow } from '../composables/useShifts'
 import { bypassCacheFor, useStore } from '../store'
 import { agoText } from '../utils/datetime'
@@ -49,6 +49,17 @@ const retrying = ref(false)
 const recovered = ref(false)
 let recoverTimer = 0
 
+/* 圏内に戻ったら自動で追いつく。会場では「電波の悪い部屋から出る」ことで
+ * 直るケースが多く、そのたびに再試行を押させたくない。
+ *
+ * 間隔は倍々に伸ばす。会場の外に持ち出したまま画面を開いておくと、一定間隔では
+ * 失敗する要求が延々と積み上がる (実際に数百件になった)。復帰の見込みは時間が
+ * 経つほど薄いので、待ちを長くしていく。本人の操作やタブへの復帰で最短に戻す。 */
+const RETRY_MIN_MS = 30_000
+const RETRY_MAX_MS = 5 * 60_000
+let retryTimer = 0
+let retryDelay = RETRY_MIN_MS
+
 const agoLabel = computed(() => agoText(lastSyncAt.value, now.value))
 
 const mode = computed<'offline' | 'online' | null>(() => {
@@ -56,44 +67,49 @@ const mode = computed<'offline' | 'online' | null>(() => {
     return recovered.value ? 'online' : null
 })
 
-watch(online, (isOnline) => {
-    if (isOnline) {
-        recovered.value = true
-        window.clearTimeout(recoverTimer)
-        recoverTimer = window.setTimeout(() => { recovered.value = false }, 4000)
-        dismissed.value = false
-    } else {
-        recovered.value = false
+/** サーバーまで届くかを確かめる。
+ *
+ * どのキャッシュにも答えられない要求にする必要がある。手元の何かが答えると
+ * 「復帰した」と誤判定するため、
+ *   - `es_ping` を付けて Service Worker に素通しさせ (frontend/public/sw.js)
+ *   - クエリを毎回変えて no-store も指定し、ブラウザの HTTP キャッシュも避ける。
+ *
+ * 届いたかどうかだけを見て、応答の内容は問わない。/api/settings/ を選んだのは
+ * 十分小さく、クエリ付きの GET はサーバー側でもキャッシュされないため
+ * (app/api_cache.py)。 */
+async function reachable(): Promise<boolean> {
+    try {
+        await fetch(`/api/settings/?es_ping=${Date.now()}`, { cache: 'no-store' })
+        return true
+    } catch {
+        return false  // ネットワークに出られなかった
     }
-})
+}
 
 /** 疎通を確かめ、通っていれば今の画面のデータを取り直す。
  *
- * 疎通確認に軽い GET を1本置いているのは、タブによっては _enterTab が何も
- * 取得しないため (設定画面など)。それだけを頼りにすると、そういう画面に
- * 居る間はいつまでも「オフライン」のままになる。
- *
- * 通っていなければ _enterTab には進まない。オフラインのまま 30 秒ごとに
- * 数本ずつ失敗する fetch を投げても、得るものがない。 */
+ * 疎通確認を別に置いているのは、タブによっては _enterTab が何も取得しないため
+ * (設定画面など)。それだけを頼りにすると、そういう画面に居る間はいつまでも
+ * 「オフライン」のままになる。 */
 async function refresh(): Promise<void> {
     if (retrying.value) return
     retrying.value = true
     try {
+        if (!(await reachable())) return
+        // 届いた時点で復帰。取り直しが失敗しても、この判定は巻き戻さない
+        noteReachable()
         // 切断中に取り込んだ max-age の残りではなく、新鮮な応答が欲しい
         bypassCacheFor(15_000)
-        await fetch('/api/settings/')
-        // 判定は store の fetch ラッパー経由で useConnection が済ませている。
-        // Service Worker のキャッシュが答えただけなら、まだ外に出られていない。
-        if (!online.value) return
         await _enterTab(tab.value)
     } catch {
-        /* オフライン表示のまま。noteFailure() が呼ばれている */
+        /* 取り直しの失敗は握る。接続状態の判定は fetch ラッパーが行う */
     } finally {
         retrying.value = false
     }
 }
 
 function retry() {
+    retryDelay = RETRY_MIN_MS  // 手で押したなら、次の自動再試行も間隔を戻す
     void refresh()
 }
 
@@ -102,33 +118,60 @@ function dismiss() {
     else recovered.value = false
 }
 
-/* 圏内に戻ったら自動で追いつく。会場では「電波の悪い部屋から出る」ことで
- * 直るケースが多く、そのたびに再試行を押させたくない。
- * navigator.onLine の online イベントは当てにならない (つながった "かもしれない")
- * ので、それも含めて定期的に試すだけにしている。 */
-const RETRY_MS = 30_000
-let retryTimer = 0
+function schedule(delay: number) {
+    window.clearTimeout(retryTimer)
+    retryTimer = window.setTimeout(tick, delay)
+}
 
-function tick() {
+async function tick() {
+    // 裏のタブで通信を試みても意味がない。
+    //
+    // navigator.onLine が false のときも試す。これを条件にすると、環境の都合で
+    // 常に false を返す端末で永久に復帰できなくなる。「疑わしければ実際に試す」に
+    // 寄せる — 外れても失敗する要求が1本増えるだけで済む。
+    if (document.visibilityState === 'visible') await refresh()
+    if (online.value) return  // 復帰したら下の watch がタイマーを止める
+    retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
+    schedule(retryDelay)
+}
+
+/** すぐ試す価値がある出来事 (復帰の兆し・タブに戻った) が起きた。 */
+function tryNow() {
     if (online.value) return
-    if (document.visibilityState !== 'visible') return  // 裏のタブで通信を試みても意味がない
-    void refresh()
+    retryDelay = RETRY_MIN_MS
+    schedule(0)
 }
 
 function onVisible() {
-    if (document.visibilityState === 'visible') tick()
+    if (document.visibilityState === 'visible') tryNow()
 }
 
+// 復帰の知らせと、再試行タイマーの開始・停止。
+// 常設のタイマーを持たないので、オンラインのあいだは何も動かない。
+watch(online, (isOnline) => {
+    if (isOnline) {
+        window.clearTimeout(retryTimer)
+        retryDelay = RETRY_MIN_MS
+        recovered.value = true
+        window.clearTimeout(recoverTimer)
+        recoverTimer = window.setTimeout(() => { recovered.value = false }, 4000)
+        dismissed.value = false
+    } else {
+        recovered.value = false
+        schedule(retryDelay)
+    }
+})
+
 onMounted(() => {
-    retryTimer = window.setInterval(tick, RETRY_MS)
-    window.addEventListener('online', tick)
+    if (!online.value) schedule(retryDelay)
+    window.addEventListener('online', tryNow)
     document.addEventListener('visibilitychange', onVisible)
 })
 
 onBeforeUnmount(() => {
-    window.clearInterval(retryTimer)
+    window.clearTimeout(retryTimer)
     window.clearTimeout(recoverTimer)
-    window.removeEventListener('online', tick)
+    window.removeEventListener('online', tryNow)
     document.removeEventListener('visibilitychange', onVisible)
 })
 </script>
