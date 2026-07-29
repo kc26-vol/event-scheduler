@@ -157,11 +157,44 @@ class StaffPreferredSessionCreate(BaseModel):
     priority: int = 1
 
 
+class SessionBrief(BaseModel):
+    """他のレスポンスに埋め込むための軽いセッション。
+
+    description / notes / 登壇者プロフィール / lt_talks を持たない。これらは
+    1件あたり数KBあり、埋め込み側では一度も読まれないのに件数分だけ重複する。
+    """
+
+    id: int
+    title: str
+    start_time: datetime
+    end_time: datetime
+    room_id: int
+    category: str
+
+    model_config = {"from_attributes": True}
+
+
+class SessionSummary(SessionBrief):
+    """担当一覧に埋め込むセッション。本文系は落とすが、カードの描画に必要な
+    部屋・必要人数・登壇者名までは残す。"""
+
+    speaker: str = ""
+    speaker_org: str = ""
+    speaker_title: str = ""
+    required_staff: int = 0
+    english_required: bool = False
+    group_id: int | None = None
+    room: RoomResponse | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class StaffPreferredSessionResponse(BaseModel):
     id: int
     session_id: int
     priority: int
-    session: SessionResponse | None = None
+    # 画面が読むのは開始時刻とタイトルだけ (StaffsView の希望セッション表示)。
+    session: SessionBrief | None = None
 
     model_config = {"from_attributes": True}
 
@@ -238,6 +271,47 @@ class StaffResponse(BaseModel):
         return v
 
 
+class StaffBrief(BaseModel):
+    """配置一覧に埋め込むための軽いスタッフ。
+
+    希望セッション (preferred_sessions) と活動可能時間 (availabilities) を
+    持たない。特に preferred_sessions は 1人あたり約 15KB あり、
+    /api/assignments/schedule では配置件数ぶん (実データで 940 回) 重複して
+    レスポンス全体の 96% を占めていた。画面側がここから読むのは
+    id / name / photo だけ。
+
+    ORM 属性から作れないよう model_config は付けない — 明示的に
+    from_staff() を通すことで、遅延ロードが走る経路を残さない。
+    """
+
+    id: int
+    name: str
+    slack_name: str
+    photo: str
+    english_ok: bool
+    role: list[str]
+    max_hours: int
+    experience_count: int
+    emergency_contact: str
+    skills: list[StaffSkillResponse] = []
+
+    @classmethod
+    def from_staff(cls, s) -> "StaffBrief":
+        role = s.role or ""
+        return cls(
+            id=s.id,
+            name=s.name,
+            slack_name=s.slack_name or "",
+            photo=s.photo or "",
+            english_ok=bool(s.english_ok),
+            role=[r for r in role.split(",") if r] if isinstance(role, str) else role,
+            max_hours=s.max_hours,
+            experience_count=s.experience_count,
+            emergency_contact=s.emergency_contact or "",
+            skills=[StaffSkillResponse.model_validate(k) for k in s.skills],
+        )
+
+
 # --- Assignment ---
 class AssignmentResponse(BaseModel):
     id: int
@@ -259,7 +333,7 @@ class AssignmentCreate(BaseModel):
 # --- Schedule output ---
 class AssignedStaffEntry(BaseModel):
     assignment_id: int
-    staff: StaffResponse
+    staff: StaffBrief
 
 
 class ScheduleEntry(BaseModel):
@@ -271,9 +345,27 @@ class ScheduleResponse(BaseModel):
     schedule: list[ScheduleEntry]
 
 
+class StaffWithAvailability(StaffBrief):
+    """スタッフ別担当表で使う。活動可能時間は画面に出るので残す。
+
+    希望セッション (preferred_sessions) はスタッフ編集フォームでしか読まれず、
+    そちらは /api/staffs/ を見ているので、ここには要らない。
+    """
+
+    availabilities: list[StaffAvailabilityResponse] = []
+
+    @classmethod
+    def from_staff(cls, s) -> "StaffWithAvailability":
+        base = StaffBrief.from_staff(s)
+        return cls(
+            **base.model_dump(),
+            availabilities=[StaffAvailabilityResponse.model_validate(a) for a in s.availabilities],
+        )
+
+
 class StaffScheduleEntry(BaseModel):
-    staff: StaffResponse
-    assigned_sessions: list[SessionResponse]
+    staff: StaffWithAvailability
+    assigned_sessions: list[SessionSummary]
 
 
 class StaffScheduleResponse(BaseModel):
