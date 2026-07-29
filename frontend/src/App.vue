@@ -136,7 +136,15 @@
                     <TimeRange :start="sessDetailSession.start_time" :end="sessDetailSession.end_time" size="md" show-duration />
                 </div>
                 <div class="sd-fact-text">
-                    <div v-if="sessDetailSession.room"><strong>部屋:</strong> {{ sessDetailSession.room.name }}</div>
+                    <!-- 場所からその持ち場の担当表へ。会場に立っている人が
+                         「ここに他に誰がいつ入るのか」を追う入口。 -->
+                    <div v-if="sessDetailSession.room">
+                        <strong>部屋:</strong>
+                        <RouterLink v-if="rosterLink" :to="rosterLink" class="sd-room" @click="sessDetailSession = null">
+                            {{ sessDetailSession.room.name }}<span class="sd-room-go">担当表 &rsaquo;</span>
+                        </RouterLink>
+                        <template v-else>{{ sessDetailSession.room.name }}</template>
+                    </div>
                     <div>
                         <span class="badge">{{ catLabel(sessDetailSession.category) }}</span>
                         <span v-if="sessDetailSession.english_required" class="badge" style="background:#e0f2f1;color:#00695c;margin-left:4px">EN</span>
@@ -204,13 +212,17 @@
                     <button v-if="assignStaffSelect[sessDetailSession.id] && assignStaffSelect[sessDetailSession.id] !== '0'" class="btn btn-sm" @click="addAssignmentOrAll(sessDetailSession.id)" style="padding:4px 12px">追加</button>
                 </div>
             </div>
+
+            <!-- 同じ場所の直前・直後の担当。10分以上離れていれば何も出ない。
+                 この枠の担当スタッフを見たあとに読む順にしたいので最後に置く。 -->
+            <SessionHandoff :session="sessDetailSession" />
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { useStore, runInitialLoad, enterTab } from './store'
 import { useMe } from './composables/useMe'
 import { routeToTab } from './router'
@@ -220,6 +232,8 @@ import TimeRange from './components/TimeRange.vue'
 import SearchSelect from './components/SearchSelect.vue'
 import IdentityGate from './components/IdentityGate.vue'
 import SidebarMe from './components/SidebarMe.vue'
+import SessionHandoff from './components/SessionHandoff.vue'
+import { dateKey } from './utils/datetime'
 
 const route = useRoute()
 
@@ -231,7 +245,7 @@ onMounted(async () => {
 })
 
 const {
-    tab, sidebarOpen, appTitle, sessionGroups, categories, switchTab,
+    tab, sidebarOpen, appTitle, sessionGroups, categories, switchTab, overallRoomId,
     roleDropdownOpen, catLabel, dynamicCatKeys, isMultiSpeakerCat,
     gridMenu, gridMenuEdit, gridMenuDelete, gridMenuDetail,
     sessDetailSession, sessDetailEntry, sessDetailLocked, toggleSessDetailLock,
@@ -250,6 +264,19 @@ function toggleAdmin() {
     adminOpen.value = !adminOpen.value
     try { localStorage.setItem(ADMIN_KEY, adminOpen.value ? '1' : '0') } catch { /* 保存できなくても動く */ }
 }
+
+// 場所の担当表へのリンク。「全体」は場所ではなく全員向けの枠を置くための
+// 仮想的な部屋なので、担当表は出さない。
+// 開いていたシフトの日と位置を渡す — 担当表を当日で開くと、翌日のシフトから
+// 辿った人が別の日を見せられることになる。
+const rosterLink = computed(() => {
+    const s = sessDetailSession.value
+    if (!s?.room || s.room_id === overallRoomId.value) return null
+    return {
+        path: `/rooms/${s.room_id}/roster`,
+        query: { date: dateKey(s.start_time), from: String(s.id) },
+    }
+})
 
 // 詳細モーダルの「スタッフ追加」候補。全体セッションだけ「全員」を選べる。
 const assignOptions = computed(() => {
@@ -316,6 +343,21 @@ const assignOptions = computed(() => {
 }
 .sd-fact { flex-shrink: 0; padding-right: var(--sp-4); border-right: 1px solid var(--c-border); }
 .sd-fact-text { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-md); color: #555; min-width: 0; }
+
+/* 場所は担当表への入口なので、指で押せる大きさを確保する
+   (行の中の文字リンクだと、モバイルで隣の行ごと拾ってしまう)。 */
+.sd-room {
+    display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    min-height: var(--tap); padding: var(--sp-1) var(--sp-2); margin-left: -2px;
+    color: var(--c-primary); font-weight: 600; text-decoration: none;
+    border-radius: var(--r-sm);
+}
+.sd-room:hover { background: var(--c-primary-weak); }
+.sd-room-go {
+    font-size: var(--fs-xs); font-weight: 700;
+    color: var(--c-primary); background: var(--c-primary-weak);
+    padding: 2px var(--sp-2); border-radius: var(--r-full); white-space: nowrap;
+}
 
 @media (max-width: 480px) {
     .sd-panel { padding: var(--sp-4); }

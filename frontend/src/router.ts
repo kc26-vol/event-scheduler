@@ -19,6 +19,11 @@ const routes = [
     { path: '/staffs', component: () => import('./views/StaffsView.vue'), meta: { tab: 'staffs' } },
     { path: '/staffs/:id(\\d+)', component: () => import('./views/StaffDetailPageView.vue'), meta: { tab: 'staffs' } },
     { path: '/rooms', component: () => import('./views/RoomsView.vue'), meta: { tab: 'rooms' } },
+    // 場所ごとの担当表。参加者が見るページで、部屋管理 (tab: 'rooms') とは別物。
+    // タブ名を 'all-matrix' にしているのは、必要なデータ (部屋・セッション・
+    // 配置) の読み込みが全体スケジュールと同じで、サイドバーで指すべき場所も
+    // そこだから (/staffs/:id が 'staffs' を借りているのと同じ扱い)。
+    { path: '/rooms/:id(\\d+)/roster', component: () => import('./views/RoomRosterView.vue'), meta: { tab: 'all-matrix' } },
     { path: '/venue-maps', component: () => import('./views/VenueMapsView.vue'), meta: { tab: 'venue-maps' } },
     { path: '/overall/assign', component: () => import('./views/OverallAssignView.vue'), meta: { tab: 'overall-assign' } },
     { path: '/groups/:id(\\d+)/assign', component: () => import('./views/GroupAssignView.vue'), meta: { tab: (r) => `grp-${r.params.id}-assign` } },
