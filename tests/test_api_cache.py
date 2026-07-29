@@ -148,6 +148,29 @@ def test_メモリキャッシュはTTLで作り直される(stub, monkeypatch):
     assert calls["n"] == 2
 
 
+def test_他の_worker_が繰り上げた版番号を即座に見る(db):
+    """gunicorn の複数 worker 構成で「自分の更新が自分に見えない」を防ぐ。
+
+    worker A が POST を処理して版番号を繰り上げたあと、同じ利用者の次の GET が
+    worker B に届くことがある。B が版番号をプロセス内に覚えていると、
+    B のメモリから更新前の内容を返してしまう。
+    """
+    from app.models import AppSetting
+
+    api_cache.invalidate()
+    db.add(AppSetting(key="data_version", value="100"))
+    db.commit()
+    assert api_cache._read_version() == 100
+
+    # 別プロセス (worker A) が繰り上げた状況を、DB を直接書き換えて作る。
+    # この worker は bump_version() を通っていない。
+    row = db.query(AppSetting).filter(AppSetting.key == "data_version").first()
+    row.value = "101"
+    db.commit()
+
+    assert api_cache._read_version() == 101, "他 worker の更新が見えていない"
+
+
 def test_版番号は復元で巻き戻っても単調増加する(db):
     """バックアップ復元で data_version が巻き戻ると、過去に配ったのと同じ
     ETag が再利用され、中身が違うのに 304 を返してしまう。"""

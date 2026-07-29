@@ -84,9 +84,15 @@ _VERSION_BUMP_PREFIX = "/api/"
 
 _SETTING_KEY = "data_version"
 
-# 版番号の読み出しはリクエストごとに走るので、ごく短時間だけ覚えておく。
-_VERSION_TTL = 1.0
-_cached_version: tuple[int, float] = (0, 0.0)
+# 版番号はリクエストごとに DB から読む。プロセス内に短時間キャッシュすると、
+# gunicorn の複数 worker 構成で「自分の更新が自分に見えない」ことがある:
+#
+#   worker A が POST を処理 -> 版番号を繰り上げて A のメモリを破棄
+#   同じ利用者の次の GET が worker B に届く
+#   -> B が古い版番号を覚えていると、B のメモリから更新前の内容を返す
+#
+# 実測で 1回 0.18ms (対して schedule の生成は 39ms) なので、
+# ここを削ってでも「更新したら次に必ず見える」を優先する。
 
 
 @dataclass
@@ -103,33 +109,23 @@ _memory: dict[str, _Entry] = {}
 
 def _read_version() -> int:
     """現在のデータ版番号を返す (無ければ 0)。"""
-    global _cached_version
-    value, ts = _cached_version
-    now = time.monotonic()
-    if now - ts < _VERSION_TTL:
-        return value
-
     from .database import SessionLocal
     from .models import AppSetting
 
     db = SessionLocal()
     try:
         row = db.query(AppSetting).filter(AppSetting.key == _SETTING_KEY).first()
-        value = int(row.value) if row and str(row.value).isdigit() else 0
+        return int(row.value) if row and str(row.value).isdigit() else 0
     except Exception:
-        # 版番号が読めないときは「毎回変わった」ことにして正しさを優先する
-        value = int(time.time())
+        # 版番号が読めないときは「毎回変わった」ことにして正しさを優先する。
+        # キャッシュが効かなくなるだけで、古い内容は配らない。
+        return int(time.time())
     finally:
         db.close()
-
-    _cached_version = (value, now)
-    return value
 
 
 def bump_version() -> int:
     """データ版番号を繰り上げ、プロセス内キャッシュを捨てる。"""
-    global _cached_version
-
     from .database import SessionLocal
     from .models import AppSetting
 
@@ -154,8 +150,6 @@ def bump_version() -> int:
         db.close()
 
     _memory.clear()
-    # 次の読み出しで DB から取り直させる
-    _cached_version = (0, 0.0)
     return nxt
 
 
@@ -165,9 +159,7 @@ def current_version() -> int:
 
 def invalidate() -> None:
     """テストや管理操作から明示的にキャッシュを捨てる。"""
-    global _cached_version
     _memory.clear()
-    _cached_version = (0, 0.0)
 
 
 def _cache_control() -> str:
