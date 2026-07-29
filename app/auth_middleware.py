@@ -35,6 +35,34 @@ IPINFO_TOKEN = os.environ.get("IPINFO_TOKEN", "")
 # Paths that bypass authentication
 PUBLIC_PATHS = {"/auth/login", "/auth/verify", "/auth/logout", "/auth/debug", "/auth/setup"}
 
+# 認証を通さない静的ファイル。中身はアプリの外枠だけで、イベントのデータは含まない。
+#
+# PWA 関連をここに入れているのは、これらの取得が「ブラウザが cookie 抜きで
+# 行う」ものだから。認証の内側に置くとログイン画面へのリダイレクトが返り、
+# manifest の解析もアイコンの取得も失敗する = インストールできない。
+#
+# /sw.js と /precache-manifest.js も外している。セッションが切れているあいだ
+# Service Worker の更新確認が HTML を掴んでしまうと、更新が止まったままに
+# なるため。どちらもアプリのコードで、データは入っていない。
+
+# アイコンは前方一致 ("/icons/") にしない。SPA 配信は存在しないパスに
+# index.html を返すため (app/main.py の SPAStaticFiles)、前方一致にすると
+# /icons/なんでも で未認証のままアプリの殻を引けてしまう。
+# 増やすときは manifest 側 (app/main.py) と揃える。
+PUBLIC_ICONS = {
+    "/icons/icon-192.png",
+    "/icons/icon-512.png",
+    "/icons/icon-maskable-512.png",
+    "/icons/apple-touch-icon.png",
+}
+
+PUBLIC_STATIC_PATHS = {
+    "/login.html", "/setup.html", "/robots.txt",
+    "/manifest.webmanifest", "/favicon.ico",
+    "/sw.js", "/precache-manifest.js",
+    *PUBLIC_ICONS,
+}
+
 # ---------------------------------------------------------------------------
 # Setup completion check (cached)
 # ---------------------------------------------------------------------------
@@ -181,8 +209,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path.startswith("/public/"):
             return await call_next(request)
 
-        # Allow static assets on login/setup page
-        if path in ("/login.html", "/setup.html", "/robots.txt"):
+        # Allow static assets on login/setup page + PWA assets
+        if path in PUBLIC_STATIC_PATHS:
             return await call_next(request)
 
         # Redirect to setup if not yet completed

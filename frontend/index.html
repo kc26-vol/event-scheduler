@@ -6,6 +6,19 @@
     <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#1e293b">
     <title>Event Scheduler</title>
+
+    <!-- PWA。manifest とアイコンは認証を通さずに配れるようにしてある
+         (app/auth_middleware.py)。ここに認証が掛かると、manifest の取得が
+         ログイン画面へのリダイレクトになりインストールできない。 -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" href="/icons/icon-192.png" sizes="192x192">
+    <!-- iOS は manifest の icons を見ない -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Scheduler">
     <!--
       Vue が mount するまでのあいだに見えるアプリシェル。
       これが無いと、JS の評価が終わるまで真っ白な画面が出る。

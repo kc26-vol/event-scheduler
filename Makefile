@@ -146,6 +146,12 @@ package: build
 	@zip -r -q $(ZIP) . -x $(ZIP_EXCLUDES)
 	@test -n "$$(unzip -l $(ZIP) | grep 'frontend/dist/assets/')" \
 	  || { echo "ERROR: frontend/dist がパッケージに含まれていません"; exit 1; }
+	@# オフライン対応の資材。欠けてもオンラインでは何も起きないため、
+	@# 会場で電波が切れて初めて気付くことになる。ここで止める。
+	@for f in frontend/dist/sw.js frontend/dist/precache-manifest.js frontend/dist/icons/icon-512.png; do \
+	  unzip -l $(ZIP) | grep -q "$$f" \
+	    || { echo "ERROR: $$f がパッケージに含まれていません (オフライン対応が無効になります)"; exit 1; }; \
+	done
 	@BAD="$$(unzip -l $(ZIP) | awk '{print $$4}' \
 	   | grep -E '(^|/)\.env|\.tfstate|\.tfvars|(^|/)tfplan$$|^backups/' || true)"; \
 	  test -z "$$BAD" || { \

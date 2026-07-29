@@ -2,6 +2,7 @@
 // シングルトンの composable として提供し、各ビューは <script setup> で
 // useStore() から必要な状態・関数を分割代入して使う。
 import { ref, reactive, computed } from 'vue'
+import { noteFailure, noteResponse } from './composables/useConnection'
 import type {
     Room, Session, Staff, ScheduleEntry, StaffScheduleEntry,
     Category, SessionGroup, VenueMap, SessionCatOption, CustomRole,
@@ -29,21 +30,42 @@ import type {
 const MUTATION_BYPASS_MS = 15_000
 let _bypassUntil = 0
 
+/** 一定時間、取得系のブラウザキャッシュを迂回する。
+ *
+ * 更新直後は上記の理由で自動的に呼ばれる。オフラインから復帰したときにも
+ * 使う (ConnectionToast.vue) — 復帰の瞬間に欲しいのは「新鮮な最新」であって、
+ * 切断中に取り込んだ max-age の残りではない。 */
+export function bypassCacheFor(ms: number = MUTATION_BYPASS_MS): void {
+    _bypassUntil = Date.now() + ms
+}
+
 if (typeof window !== 'undefined' && !(window as any).__esCacheBypassInstalled) {
     ;(window as any).__esCacheBypassInstalled = true
     const originalFetch = window.fetch.bind(window)
     window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
         const url = typeof input === 'string' ? input : (input as Request).url ?? String(input)
         const method = (init?.method ?? (input as Request)?.method ?? 'GET').toUpperCase()
-        if (url.includes('/api/')) {
-            if (method !== 'GET') {
-                _bypassUntil = Date.now() + MUTATION_BYPASS_MS
-            } else if (Date.now() < _bypassUntil) {
-                // reload = キャッシュを読まずに取りに行く (結果は保存する)
-                init = { ...init, cache: 'reload' }
-            }
+        if (!url.includes('/api/')) return originalFetch(input, init)
+
+        if (method !== 'GET') {
+            _bypassUntil = Date.now() + MUTATION_BYPASS_MS
+        } else if (Date.now() < _bypassUntil) {
+            // reload = キャッシュを読まずに取りに行く (結果は保存する)
+            init = { ...init, cache: 'reload' }
         }
-        return originalFetch(input, init)
+
+        // API 呼び出しはすべてここを通るので、接続状態の判定もここで拾う。
+        // 各 load 関数に手を入れずに済み、あとから増えた呼び出しも自動で入る。
+        return originalFetch(input, init).then(
+            (res) => {
+                if (method === 'GET') noteResponse(res)
+                return res
+            },
+            (err) => {
+                noteFailure()
+                throw err
+            },
+        )
     }
 }
 

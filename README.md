@@ -57,11 +57,41 @@
 - 日をまたいだ担当の偏りは、ハード制約ではなくスコアのソフトな減点として考慮します
 - 他の日の配置は書き換えません。3日開催なら3回実行してください
 
+### オフライン利用 (PWA)
+
+会場の電波が弱くても担当表が読めるように、PWA として動きます。ブラウザの
+「ホーム画面に追加」「アプリをインストール」から、通常のアプリのように開けます。
+
+**オフラインでできること** — 一度オンラインで開いていれば、以降は電波が無くても
+閲覧できます。マイページ・全体スケジュール・スタッフ別詳細・場所ごとの担当表・
+会場地図・スタッフの顔写真まで、最後に取得した内容がそのまま出ます。
+オンラインのときに開いていない画面も表示できます。起動時に、全画面ぶんの
+アセットと読み取り API 一式、それにフロアマップの画像までまとめて保存して
+いるためです (会場で電波を失ったときに一番困るのがフロアマップなので、
+開いていなくても読めるようにしています)。
+
+**オフラインでできないこと** — 追加・編集・削除は保存されません。オフラインでの
+編集を溜めて後から送る仕組みは持っていません (同じ枠を別の人が編集していた場合に
+どちらを採るかを決められないため)。編集は電波のある場所で行ってください。
+
+**画面右下のトースト** — 通信が切れると右下に「オフライン / 最終更新: x分前」を
+表示します。オフラインだと分かっただけでは「今見えている担当表を信じてよいか」が
+決まらないため、最後にサーバーから取得できた時刻を併記しています。
+30秒ごとに自動で再接続を試み、つながると最新に追いついて短く知らせて消えます
+（すぐ試したいときは「再試行」）。
+
 ### セキュリティ
 
 - パスワードはPBKDF2-SHA256でハッシュ化して保存
 - GeoIP制限、レート制限、ブルートフォース防止
 - セキュリティヘッダー（CSP、X-Frame-Options等）
+- PWA の資材 (`/manifest.webmanifest`, `/sw.js`, `/precache-manifest.js`,
+  `/icons/*`, `/favicon.ico`) は認証を通しません。ブラウザがこれらを cookie 抜きで
+  取りに来るため、認証の内側に置くとインストールできなくなります。いずれも
+  アプリの外枠だけで、イベントのデータは含みません
+- オフライン用のキャッシュに残す API は許可制です (`frontend/public/sw.js` の
+  `DATA_PATHS`)。公開APIキーや GitHub トークンを返す `/api/public-api/settings` は
+  対象外にしています
 
 ## サンプルデータ
 
@@ -78,19 +108,30 @@
 ```
 frontend/
 ├── index.html          # Vite エントリ
-├── vite.config.ts      # dev server の /api, /auth, /uploads, /public プロキシ設定
+├── vite.config.ts      # dev server のプロキシ設定 + Service Worker の precache 一覧生成
 ├── tsconfig.json       # TypeScript 設定 (vue-tsc による型チェックをビルドに統合)
-├── public/             # そのままコピーされる静的ファイル (login.html, setup.html, robots.txt)
+├── public/             # そのままコピーされる静的ファイル
+│   ├── login.html, setup.html, robots.txt
+│   ├── sw.js           # Service Worker (オフライン時の配信)
+│   ├── favicon.ico
+│   └── icons/          # PWA アイコン (192 / 512 / maskable / apple-touch)
 └── src/
-    ├── main.ts         # アプリ初期化 (ルーター / グローバルコンポーネント登録)
+    ├── main.ts         # アプリ初期化 (ルーター / グローバルコンポーネント / SW 登録)
     ├── App.vue         # サイドバーレイアウト + 共通モーダル + <router-view>
     ├── router.ts       # ルート定義とタブ名⇔パスの対応
     ├── store.ts        # グローバルストア (全状態・API呼び出しを集約した composable)
     ├── types.ts        # API レスポンスの型定義 (Room, Session, Staff, Assignment など)
     ├── assets/style.css
-    ├── components/     # 共通コンポーネント (TlGrid など)
+    ├── composables/    # useMe (本人/閲覧対象), useShifts (担当), useConnection (接続状態)
+    ├── components/     # 共通コンポーネント (TlGrid, ConnectionToast など)
     └── views/          # ページ単位の SFC (全体スケジュール, スタッフ管理, 部屋管理, ...)
 ```
+
+`precache-manifest.js` はビルドで生成されます (`frontend/vite.config.ts`)。
+画面はルート単位に分割されているため、Service Worker がハッシュ付きの
+ファイル名を知る必要があり、その一覧をビルド時に書き出しています。
+アイコンを差し替える場合は `frontend/public/icons/` を置き換えたうえで、
+`app/main.py` の manifest と `app/auth_middleware.py` の `PUBLIC_ICONS` を揃えてください。
 
 各ページは URL パスで分かれています (例: `/` = 全体スケジュール, `/staffs` = スタッフ管理,
 `/staffs/:id` = スタッフ詳細, `/groups/:id/manage` = セッショングループ管理)。

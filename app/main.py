@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import UPLOAD_DIR
@@ -391,17 +391,91 @@ def setup_page():
     return HTMLResponse(content=html)
 
 
-@app.get("/login.html", response_class=HTMLResponse)
-def login_page():
+def _app_title() -> str:
     db = SessionLocal()
     try:
         row = db.query(AppSetting).filter(AppSetting.key == "app_title").first()
-        title = row.value if row and row.value else "Event Scheduler"
+        return row.value if row and row.value else "Event Scheduler"
     finally:
         db.close()
+
+
+SHORT_NAME_MAX = 12
+
+
+def _short_title(title: str) -> str:
+    """ホーム画面のアイコン下に出す短い名前。
+
+    ラベルは 12 文字程度で切られるため、長いイベント名は自分で縮めておく。
+    単純に前から切ると "KubeCon + CloudNativeCon Japan 2026" が
+    "KubeCon + Cl" になり、何のアプリか分からなくなる。入る単語までで
+    区切り、末尾に残った接続記号を落とす。
+
+    日本語のように空白で区切られない名前は、そのまま前から切るしかない。
+    """
+    if len(title) <= SHORT_NAME_MAX:
+        return title
+    words: list[str] = []
+    for word in title.split():
+        candidate = " ".join(words + [word])
+        if words and len(candidate) > SHORT_NAME_MAX:
+            break
+        words.append(word)
+    short = " ".join(words).rstrip("+-–—/&,:・ ").strip()
+    # 最初の単語だけで超える場合 (空白の無い名前を含む) は前から切る
+    return short[:SHORT_NAME_MAX] if not short or len(short) > SHORT_NAME_MAX else short
+
+
+@app.get("/login.html", response_class=HTMLResponse)
+def login_page():
     html = Path("frontend/public/login.html").read_text(encoding="utf-8")
-    html = html.replace("{{APP_TITLE}}", title)
+    html = html.replace("{{APP_TITLE}}", _app_title())
     return HTMLResponse(content=html)
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    """PWA のマニフェスト。ホーム画面に追加したときの名前とアイコンを決める。
+
+    静的ファイルにせず組み立てているのは、アプリ名を DB の app_title に
+    合わせるため。イベントごとに名前が変わるので、ホーム画面のラベルが
+    "Event Scheduler" 固定だと何のアプリか分からなくなる。
+
+    認証は通していない (app/auth_middleware.py の PUBLIC_STATIC_PATHS)。
+    manifest の取得はブラウザが既定で cookie を付けずに行うため、認証の内側に
+    置くとログイン画面へのリダイレクトが返りインストールできない。
+    アプリ名は login.html でも未認証の相手に出しているので、ここで新たに
+    公開されるものはない。
+    """
+    title = _app_title()
+    manifest = {
+        # id を固定しておくと、名前を変えても同じアプリとして扱われる
+        "id": "/",
+        "name": title,
+        "short_name": _short_title(title),
+        "lang": "ja",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#f0f2f5",
+        "theme_color": "#1e293b",
+        "icons": [
+            {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+        # 長押しメニュー。会場で使う2画面だけ入れる
+        "shortcuts": [
+            {"name": "マイページ", "url": "/"},
+            {"name": "全体スケジュール", "url": "/schedule"},
+        ],
+    }
+    return JSONResponse(
+        content=manifest,
+        media_type="application/manifest+json",
+        # 名前を変えたら次の起動で追いつくように、毎回検証させる
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 class SPAStaticFiles(StaticFiles):
