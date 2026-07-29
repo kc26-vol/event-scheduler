@@ -96,7 +96,9 @@ const countdown = computed(() =>
 .smi-shift.is-now { border-left-color: var(--c-danger); }
 .smi-shift.is-next { border-left-color: var(--c-primary); }
 
-.smi-shift-head { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+/* 日付付きの時刻 (7/30 08:00) とカウントダウン (あと13時間48分) が並ぶと
+   サイドバーの幅に収まらない。縮めると数字が読めなくなるので折り返す。 */
+.smi-shift-head { display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--sp-1); min-width: 0; }
 .smi-state {
     flex-shrink: 0; font-size: var(--fs-xs); font-weight: 700;
     padding: 0 5px; border-radius: var(--r-full); color: #fff;
@@ -104,10 +106,8 @@ const countdown = computed(() =>
 .smi-shift.is-now .smi-state { background: var(--c-danger); }
 .smi-shift.is-next .smi-state { background: var(--c-primary); }
 .smi-time { flex-shrink: 0; font-size: var(--fs-xs); font-weight: 700; color: var(--c-nav-fg-strong); }
-.smi-until {
-    margin-left: auto; flex-shrink: 0;
-    font-size: var(--fs-xs); color: var(--c-nav-fg);
-}
+/* 折り返した先で右端に飛ばないよう、余白での右寄せはしない。 */
+.smi-until { font-size: var(--fs-xs); color: var(--c-nav-fg); }
 .smi-title {
     font-size: var(--fs-xs); color: var(--c-nav-fg); line-height: var(--lh-tight);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
