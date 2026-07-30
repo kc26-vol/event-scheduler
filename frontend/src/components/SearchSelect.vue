@@ -42,7 +42,7 @@
                 v-if="open"
                 ref="popupEl"
                 class="ss-popup"
-                :class="{ 'is-sheet': isSheet }"
+                :class="{ 'is-sheet': isSheet, 'has-keyboard': keyboardInset > 0 }"
                 :style="popupStyle"
             >
                 <div class="ss-search">
@@ -141,6 +141,8 @@ const query = ref('')
 const activeIndex = ref(0)
 const isSheet = ref(false)
 const popupStyle = ref<Record<string, string>>({})
+/** ソフトキーボードが隠している高さ。0 より大きければキーボードが出ている。 */
+const keyboardInset = ref(0)
 
 const selected = computed(() => props.options.find(o => o.value === props.modelValue) ?? null)
 
@@ -162,18 +164,50 @@ const SHEET_BREAKPOINT = 480
 const POPUP_MAX_H = 340
 const POPUP_MIN_W = 240
 const EDGE = 8   // 画面端に残す余白
+const SHEET_MAX_VH = 0.72
+
+/** 実際に見えている縦の範囲を、position: fixed と同じ座標系 (レイアウトビューポート) で返す。
+ *
+ *  スマホでソフトキーボードが出ても iOS Safari は innerHeight を縮めない。
+ *  そのため bottom: 0 の要素はキーボードの裏に潜り込む。見えている範囲は
+ *  visualViewport 側にしか出ないので、その差 (= inset) を測って足す。
+ *  キーボードでレイアウトビューポート自体が縮む環境では inset が 0 になり、
+ *  従来と同じ配置になる。 */
+function visibleBox() {
+    const vv = window.visualViewport
+    if (!vv) {
+        return { top: 0, bottom: window.innerHeight, height: window.innerHeight, inset: 0 }
+    }
+    // キーボードが開くと Safari は表示領域ごと上へずらすので offsetTop も見る
+    const top = vv.offsetTop
+    return {
+        top,
+        bottom: top + vv.height,
+        height: vv.height,
+        inset: Math.max(0, window.innerHeight - top - vv.height),
+    }
+}
 
 function place() {
     const el = triggerEl.value
     if (!el) return
     isSheet.value = window.innerWidth <= SHEET_BREAKPOINT
+    const vis = visibleBox()
+    keyboardInset.value = vis.inset
     if (isSheet.value) {
-        popupStyle.value = {}
+        // キーボードの上端に載せる。高さも見えている範囲までに抑える
+        // (絞り込みで中身が減るとシートが縮み、bottom: 0 のままだと
+        //  シート全体がキーボードの裏に隠れてしまう)。
+        const cap = Math.min(window.innerHeight * SHEET_MAX_VH, vis.height - EDGE * 2)
+        popupStyle.value = {
+            bottom: `${vis.inset}px`,
+            maxHeight: `${Math.max(180, Math.round(cap))}px`,
+        }
         return
     }
     const r = el.getBoundingClientRect()
-    const below = window.innerHeight - r.bottom
-    const above = r.top
+    const below = vis.bottom - r.bottom
+    const above = r.top - vis.top
     // 下に入らず上の方が広いなら上に出す
     const flip = below < 220 && above > below
     const maxH = Math.max(160, Math.min(POPUP_MAX_H, (flip ? above : below) - 12))
@@ -197,6 +231,22 @@ function place() {
     }
 }
 
+function watchViewport() {
+    window.addEventListener('resize', place)
+    // capture: 祖先のスクロールでもアンカーがずれるため
+    window.addEventListener('scroll', place, true)
+    // キーボードの開閉は resize ではなくこちらに出る (innerHeight が変わらない環境がある)
+    window.visualViewport?.addEventListener('resize', place)
+    window.visualViewport?.addEventListener('scroll', place)
+}
+
+function unwatchViewport() {
+    window.removeEventListener('resize', place)
+    window.removeEventListener('scroll', place, true)
+    window.visualViewport?.removeEventListener('resize', place)
+    window.visualViewport?.removeEventListener('scroll', place)
+}
+
 async function openPopup() {
     if (props.disabled) return
     query.value = ''
@@ -204,9 +254,7 @@ async function openPopup() {
     activeIndex.value = idx >= 0 ? idx : 0
     open.value = true
     place()
-    window.addEventListener('resize', place)
-    // capture: 祖先のスクロールでもアンカーがずれるため
-    window.addEventListener('scroll', place, true)
+    watchViewport()
     await nextTick()
     inputEl.value?.focus()
     scrollActiveIntoView()
@@ -215,8 +263,8 @@ async function openPopup() {
 function close() {
     if (!open.value) return
     open.value = false
-    window.removeEventListener('resize', place)
-    window.removeEventListener('scroll', place, true)
+    unwatchViewport()
+    keyboardInset.value = 0
     triggerEl.value?.focus()
 }
 
@@ -273,10 +321,7 @@ function onInputKeydown(e: KeyboardEvent) {
     }
 }
 
-onBeforeUnmount(() => {
-    window.removeEventListener('resize', place)
-    window.removeEventListener('scroll', place, true)
-})
+onBeforeUnmount(unwatchViewport)
 </script>
 
 <style scoped>
@@ -317,13 +362,20 @@ onBeforeUnmount(() => {
     overflow: hidden;
 }
 
-/* 狭い画面ではボトムシート。画面外にはみ出す事故が起きない。 */
+/* 狭い画面ではボトムシート。画面外にはみ出す事故が起きない。
+   bottom と max-height は place() が実際に見えている範囲から入れる
+   (キーボードの裏に入らないように)。ここの値はその前の 1 フレーム用。 */
 .ss-popup.is-sheet {
     left: 0; right: 0; bottom: 0; top: auto;
     width: auto; max-height: 72vh;
     border-radius: var(--r-lg) var(--r-lg) 0 0;
     border-bottom: none;
     padding-bottom: var(--safe-bottom);
+}
+/* キーボードが出ている間はホームバーもその裏。余白を足すと見える範囲が減るだけ。 */
+.ss-popup.is-sheet.has-keyboard {
+    padding-bottom: 0;
+    border-radius: var(--r-lg);
 }
 .ss-popup.is-sheet .ss-backdrop { background: rgba(0,0,0,0.3); }
 
