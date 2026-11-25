@@ -35,13 +35,13 @@ async function warm() {
       ...s.lt_talks.map((t) => t.speaker_photo),
     ]),
   ].filter((path) => path && photo(path));
+  for (const path of new Set([...staticFiles, ...pictures])) {
+    if (!(await cache.match(path))) await cache.add(path).catch(() => {});
+  }
   await Promise.all([
     cache.put("/", home),
     cache.put("/api/workspace", workspace),
   ]);
-  for (const path of new Set([...staticFiles, ...pictures])) {
-    if (!(await cache.match(path))) await cache.add(path).catch(() => {});
-  }
 }
 self.addEventListener("install", (event) =>
   event.waitUntil(self.skipWaiting()),
