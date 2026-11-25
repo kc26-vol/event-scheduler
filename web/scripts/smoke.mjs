@@ -57,6 +57,7 @@ try {
       redirect: "manual",
       headers: {
         cookie,
+        ...(method === "GET" ? {} : { Origin: url }),
         ...(body && !(body instanceof FormData)
           ? { "Content-Type": "application/json" }
           : {}),
@@ -66,6 +67,11 @@ try {
     return response;
   }
   assert.equal((await call("/api/workspace")).status, 401);
+  const foreign = await fetch(url + "/auth/verify", {
+    method: "POST",
+    headers: { Origin: "https://other.example" },
+  });
+  assert.equal(foreign.status, 403);
   assert.equal(
     (
       await call("/auth/setup", "POST", {
@@ -80,7 +86,9 @@ try {
   const login = await call("/auth/verify", "POST", { password: "smoke-login" });
   assert.equal(login.status, 200);
   cookie = login.headers.get("set-cookie").split(";")[0];
-  assert.match(await (await call("/schedule")).text(), /Smoke Event/);
+  const schedule = await call("/schedule");
+  assert.equal(schedule.headers.get("x-frame-options"), "DENY");
+  assert.match(await schedule.text(), /Smoke Event/);
   const room = await (
     await call("/api/rooms", "POST", { name: "Hall", capacity: 60 })
   ).json();

@@ -25,8 +25,13 @@ export async function handle(req: Request, env: Bindings, path: string[]) {
   try {
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
       const origin = req.headers.get("origin");
+      const url = new URL(req.url);
+      // NextURL normalizes loopback IPs to localhost. Host retains the incoming authority.
+      const host = req.headers.get("host");
       check(
-        !origin || origin === new URL(req.url).origin,
+        !origin ||
+          origin === url.origin ||
+          (host && origin === url.protocol + "//" + host),
         "Origin mismatch",
         403,
       );
