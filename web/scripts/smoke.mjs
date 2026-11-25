@@ -1,6 +1,7 @@
 // Run against an isolated local workerd instance. All writes use synthetic data.
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
@@ -17,6 +18,35 @@ await once(probe, "listening");
 const { port } = probe.address();
 await new Promise((resolve) => probe.close(resolve));
 const url = "http://127.0.0.1:" + port;
+// Provision browser/API sessions directly in this isolated database. Provider
+// redirects and email redemption are exercised in the account integration tests.
+async function fixtureLogin(email) {
+  const token = randomBytes(32).toString("hex");
+  const hash = (value) => createHash("sha256").update(value).digest("hex");
+  const file = join(state, "session.sql");
+  assert.match(email, /^[a-z]+@example\.test$/);
+  await writeFile(
+    file,
+    [
+      "INSERT INTO login_identities(account_id, provider, subject) SELECT id,'line','fixture-' || id FROM login_accounts WHERE email='" +
+        email +
+        "';",
+      "INSERT INTO login_sessions(account_id,token_hash,purpose,expires_at) SELECT id,'" +
+        hash(token) +
+        "','login',unixepoch()+3600 FROM login_accounts WHERE email='" +
+        email +
+        "';",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  const seeded = spawnSync(
+    wrangler,
+    ["d1", "execute", "DB", "--local", "--persist-to", state, "--file", file],
+    { stdio: "inherit" },
+  );
+  assert.equal(seeded.status, 0);
+  return { token, offline: hash("offline:" + token) };
+}
 let worker;
 try {
   const migrated = spawnSync(
@@ -25,6 +55,15 @@ try {
     { stdio: "inherit" },
   );
   assert.equal(migrated.status, 0);
+  const seed = spawnSync(
+    process.execPath,
+    ["scripts/seed-admin.mjs", "--local", "--persist-to", state],
+    {
+      env: { ...process.env, INITIAL_ADMIN_EMAIL: "admin@example.test" },
+      stdio: "inherit",
+    },
+  );
+  assert.equal(seed.status, 0);
   worker = spawn(
     wrangler,
     [
@@ -38,11 +77,7 @@ try {
       state,
       "--show-interactive-dev-session=false",
       "--var",
-      "SESSION_SECRET:smoke-only",
-      "--var",
-      "APP_PASSWORD:smoke-login",
-      "--var",
-      "RESET_PASSWORD:smoke-admin",
+      "APP_ORIGIN:" + url,
     ],
     { stdio: "inherit" },
   );
@@ -69,25 +104,22 @@ try {
     return response;
   }
   assert.equal((await call("/api/workspace")).status, 401);
-  const foreign = await fetch(url + "/auth/verify", {
+  assert.equal((await call("/setup.html")).status, 404);
+  const foreign = await fetch(url + "/auth/register", {
     method: "POST",
     headers: { Origin: "https://other.example" },
   });
   assert.equal(foreign.status, 403);
-  const anonymous = await call("/");
   assert.equal(
-    new URL(anonymous.headers.get("location"), url).pathname,
-    "/login.html",
+    (await call("/auth/bootstrap", "POST", { email: "intruder@example.test" }))
+      .status,
+    404,
   );
-  assert.equal((await call("/login.html")).status, 200);
-  assert.equal((await call("/setup.html")).status, 404);
-  assert.equal((await call("/auth/setup", "POST", {})).status, 404);
-  const login = await call("/auth/verify", "POST", { password: "smoke-login" });
-  assert.equal(login.status, 200);
-  cookie = login.headers.get("set-cookie").split(";")[0];
+  const admin = await fixtureLogin("admin@example.test");
+  cookie = "es_session=" + admin.token + "; es_offline=" + admin.offline;
   const schedule = await call("/schedule");
   assert.equal(schedule.headers.get("x-frame-options"), "DENY");
-  assert.match(await schedule.text(), /Event Scheduler/);
+  assert.match(await schedule.text(), /全体スケジュール/);
   const room = await (
     await call("/api/rooms", "POST", { name: "Hall", capacity: 60 })
   ).json();
@@ -110,6 +142,17 @@ try {
   const who = await (
     await call("/api/staffs", "POST", { name: "Crew", role: ["session"] })
   ).json();
+  assert.equal(
+    (
+      await call("/api/accounts", "POST", {
+        email: "crew@example.test",
+        role: "staff",
+        staff_id: who.id,
+      })
+    ).status,
+    201,
+  );
+  const crew = await fixtureLogin("crew@example.test");
   const file = new FormData();
   file.set(
     "photo",
@@ -128,7 +171,7 @@ try {
   cookie = "";
   assert.equal((await call(photo)).status, 401);
   console.log(
-    "Worker login, schedule, D1 writes, Excel, ZIP and private R2 routes passed.",
+    "Worker setup, schedule, D1 writes, Excel, ZIP and private R2 routes passed.",
   );
   if (process.env.CHROME_BIN) {
     const { chromium } = await import("playwright-core");
@@ -138,13 +181,30 @@ try {
     try {
       const context = await browser.newContext(),
         page = await context.newPage();
-      await page.goto(url + "/login.html");
-      await page.locator("input[name=password]").fill("smoke-login");
-      await page.getByRole("button", { name: "ログイン" }).click();
-      await page.waitForURL(url + "/");
+      await page.goto(url + "/register");
+      await page.locator('input[type="email"]').waitFor();
+      const scope = {
+        domain: new URL(url).hostname,
+        path: "/",
+        secure: true,
+        sameSite: "Lax",
+      };
+      await context.addCookies([
+        {
+          ...scope,
+          name: "es_session",
+          value: crew.token,
+          httpOnly: true,
+        },
+        { ...scope, name: "es_offline", value: crew.offline },
+      ]);
+      await page.goto(url + "/");
       await page
         .getByRole("heading", { name: "マイページ", exact: true })
         .waitFor();
+      assert.equal(await page.locator('a[href="/accounts"]').count(), 0);
+      const guarded = await context.request.get(url + "/api/accounts");
+      assert.equal(guarded.status(), 403);
       await page
         .getByRole("link", { name: "全体スケジュール", exact: true })
         .click();
@@ -155,8 +215,15 @@ try {
         async (image) =>
           !!navigator.serviceWorker.controller &&
           !!(await caches.match(image)) &&
-          !!(await caches.match("/")),
+          !!(await caches.match("/")) &&
+          !!(await caches.match("/api/offline")),
         photo,
+      );
+      assert.equal(
+        await page.evaluate(
+          async () => !!(await caches.match("/api/workspace")),
+        ),
+        false,
       );
       // Disconnect the origin itself so an unvisited URL can only render from the service worker.
       const stopped = once(worker, "exit");
@@ -172,7 +239,7 @@ try {
         .getByRole("option", { name: "Crew" })
         .waitFor({ state: "attached" });
       console.log(
-        "Chrome login, timetable, session dialog and first offline staff-page visit passed.",
+        "Chrome registration page, staff-only access, timetable and first offline staff-page visit passed.",
       );
     } finally {
       await browser.close();

@@ -1,3 +1,9 @@
-SESSION_SECRET=replace-with-a-random-local-secret
-APP_PASSWORD=replace-with-a-local-login-password
-RESET_PASSWORD=replace-with-a-separate-local-admin-password
+# Use the exact origin opened in the browser (Wrangler preview normally uses port 8787).
+APP_ORIGIN=http://localhost:3000
+AUTH_EMAIL_FROM=scheduler@example.test
+# Enable Google, LINE, or both using your development provider configuration.
+FIREBASE_PROJECT_ID=
+FIREBASE_API_KEY=
+FIREBASE_AUTH_DOMAIN=
+LINE_CHANNEL_ID=
+LINE_CHANNEL_SECRET=

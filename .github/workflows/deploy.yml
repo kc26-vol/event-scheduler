@@ -56,17 +56,15 @@ jobs:
       - run: tar -xzf "$RUNNER_TEMP/worker-bundle.tgz"
       - name: Prepare Worker secrets
         env:
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
-          RESET_PASSWORD: ${{ secrets.RESET_PASSWORD }}
+          LINE_CHANNEL_ID: ${{ vars.LINE_CHANNEL_ID }}
+          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
         run: |
           node --input-type=module <<'JS'
           import { writeFileSync } from "node:fs";
           const secrets = {};
-          for (const key of ["SESSION_SECRET", "APP_PASSWORD", "RESET_PASSWORD"]) {
-            if (!process.env[key]) throw Error("Set environment secret " + key);
-            secrets[key] = process.env[key];
-          }
+          if (Boolean(process.env.LINE_CHANNEL_ID) !== Boolean(process.env.LINE_CHANNEL_SECRET))
+            throw Error("Set LINE_CHANNEL_ID and LINE_CHANNEL_SECRET together to enable LINE.");
+          if (process.env.LINE_CHANNEL_SECRET) secrets.LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
           writeFileSync(process.env.RUNNER_TEMP + "/worker-secrets.json", JSON.stringify(secrets), {mode:0o600});
           JS
       - name: Resolve D1 and R2 on the target account
@@ -75,15 +73,29 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TARGET: ${{ github.event_name == 'release' && 'production' || inputs.target || 'staging' }}
+          APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+          AUTH_EMAIL_FROM: ${{ vars.AUTH_EMAIL_FROM }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          LINE_CHANNEL_ID: ${{ vars.LINE_CHANNEL_ID }}
         run: node scripts/prepare-cloudflare.mjs "$TARGET"
-      - name: Apply migrations and publish
+      - name: Apply migrations
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --no-install wrangler d1 migrations apply DB --remote --config wrangler.deploy.json
+      - name: Seed the first administrator on an empty database
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
+        run: node scripts/seed-admin.mjs --remote
+      - name: Publish Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           OPEN_NEXT_DEPLOY: "true"
-        run: |
-          npx --no-install wrangler d1 migrations apply DB --remote --config wrangler.deploy.json
-          npx --no-install wrangler deploy --config wrangler.deploy.json --secrets-file "$RUNNER_TEMP/worker-secrets.json"
+        run: npx --no-install wrangler deploy --config wrangler.deploy.json --secrets-file "$RUNNER_TEMP/worker-secrets.json"
       - name: Verify deployed Worker and database
         env:
           WORKER_URL: ${{ steps.prepare.outputs.url }}
