@@ -63,7 +63,8 @@ async function providerResponse<T>(
   try {
     response = await fetch(url, {
       ...request,
-      redirect: "error",
+      // Workers supports manual redirects. The non-2xx check below rejects them.
+      redirect: "manual",
       signal: AbortSignal.timeout(10000),
     });
   } catch {
