@@ -153,8 +153,8 @@ pnpm build
 cd ..
 
 # バックエンド起動 (ビルド成果物 frontend/dist を配信)
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv sync --locked
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ブラウザで http://localhost:8000 にアクセス。
@@ -351,10 +351,7 @@ az webapp deploy \
 
 `.env*` を除外すること (本番のシークレットをデプロイ物に含めないため)。
 
-> **uv 移行PR (#3) との関係について**: Azure (Oryx) の Python ビルドは `requirements.txt` を前提とします。
-> uv 移行PR (kc26-vol/event-scheduler#3) で `requirements.txt` が廃止される場合は、
-> `uv export --format requirements-txt` などにより `requirements.txt` を生成してからデプロイするか、
-> 両PRのマージ後にデプロイ手順の整合を取ってください。
+> Azure Oryx 用の requirements.txt は uv.lock から生成します。依存変更後は `uv export --locked --no-dev --no-hashes --no-emit-project --no-header -o requirements.txt` を実行してください。
 
 
 ## ライセンス

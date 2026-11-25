@@ -216,7 +216,7 @@ else
 endif
 
 test: ## バックエンドのテストを実行
-	python3 -m pytest tests/ -q
+	uv run --locked pytest tests/ -q
 
 logs: check-env ## 実行中のログを表示 (Ctrl-C で終了)
 	@$(LOAD_ENV) && az webapp log tail \

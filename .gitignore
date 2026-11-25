@@ -33,3 +33,12 @@ tfplan
 
 # macOS
 .DS_Store
+
+# Local Cloudflare bindings, migration exports and Next builds
+.dev.vars*
+!.dev.vars.example
+.wrangler/
+.open-next/
+.next/
+*.tsbuildinfo
+*.d1.sql
