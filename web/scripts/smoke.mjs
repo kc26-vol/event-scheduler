@@ -159,8 +159,13 @@ try {
           !!(await caches.match("/")),
         photo,
       );
-      await context.setOffline(true);
-      await page.goto(url + "/staff-detail");
+      // Disconnect the origin itself so an unvisited URL can only render from the service worker.
+      const stopped = once(worker, "exit");
+      worker.kill("SIGTERM");
+      await stopped;
+      await assert.rejects(fetch(url + "/api/health"));
+      const response = await page.goto(url + "/staff-detail");
+      assert.equal(response?.fromServiceWorker(), true);
       await page
         .getByRole("heading", { name: "スタッフ別担当", exact: true })
         .waitFor();
