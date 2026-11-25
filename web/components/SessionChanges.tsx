@@ -9,9 +9,7 @@ export default function SessionChanges() {
       ?.register("/sw.js", { updateViaCache: "none" })
       .catch(() => {});
     if (
-      /^\/(auth\/|register(?:\/|$)|link-account(?:\/|$)|(?:login|setup)\.html$)/.test(
-        location.pathname,
-      )
+      /^\/(?:auth|login|register|link-account)(?:\/|$)/.test(location.pathname)
     )
       return;
 

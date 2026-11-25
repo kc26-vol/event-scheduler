@@ -14,7 +14,7 @@ export async function api<T = any>(
     cache: "no-store",
   });
   if (r.status === 401) {
-    location.assign("/login.html");
+    location.assign("/login");
     throw Error("ログインが必要です");
   }
   if (!r.ok) {

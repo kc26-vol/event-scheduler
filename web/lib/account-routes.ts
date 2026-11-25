@@ -147,7 +147,7 @@ export async function accountRoute(
       .bind(digest(cookie(req, "es_session")))
       .run();
     const headers = new Headers({
-      location: "/login.html",
+      location: "/login",
       "Cache-Control": "no-store",
       "Clear-Site-Data": '"cache", "cookies", "storage"',
     });
@@ -204,9 +204,8 @@ export async function accountRoute(
         console.error("LINE callback could not be completed");
       headers.set(
         "Location",
-        ((await currentEnrollment(req, env))
-          ? "/link-account"
-          : "/login.html") + "?error=provider",
+        ((await currentEnrollment(req, env)) ? "/link-account" : "/login") +
+          "?error=provider",
       );
     }
     return new Response(null, { status: 303, headers });

@@ -29,7 +29,7 @@ export default async function Page({
     }),
     env,
   );
-  if (!account) redirect("/login.html");
+  if (!account) redirect("/login");
   const offlineShell = (await searchParams).offline === "1";
   const admin = account.role === "admin" && !offlineShell;
   if (!admin && !participantPage(path)) notFound();

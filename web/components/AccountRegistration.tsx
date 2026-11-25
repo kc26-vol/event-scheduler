@@ -82,7 +82,7 @@ export default function AccountRegistration() {
           </>
         )}
         {error && <p role="alert">{error}</p>}
-        <a href="/login.html">登録済みの方はログイン</a>
+        <a href="/login">登録済みの方はログイン</a>
       </form>
     </main>
   );

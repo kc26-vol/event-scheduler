@@ -13,7 +13,7 @@ export default async function Page() {
     new Request("https://scheduler.local", { headers: hdr }),
     env,
   );
-  if (!account) redirect("/login.html");
+  if (!account) redirect("/login");
   if (account.role !== "admin") notFound();
   const people = await env.DB.prepare(
     "SELECT id,name FROM staffs ORDER BY name,id",

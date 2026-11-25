@@ -121,11 +121,7 @@ self.addEventListener("fetch", (event) => {
     url = new URL(req.url),
     path = url.pathname;
   if (url.origin !== self.location.origin) return;
-  if (
-    /^\/(?:auth(?:\/|$)|register(?:\/|$)|link-account(?:\/|$)|(?:login|setup)\.html$)/.test(
-      path,
-    )
-  ) {
+  if (/^\/(?:auth|login|register|link-account)(?:\/|$)/.test(path)) {
     event.respondWith(
       (async () => {
         await purge();

@@ -78,6 +78,14 @@ try {
       "--show-interactive-dev-session=false",
       "--var",
       "APP_ORIGIN:" + url,
+      "--var",
+      "LINE_CHANNEL_ID:smoke",
+      "--var",
+      "LINE_CHANNEL_SECRET:local-only",
+      "--var",
+      "FIREBASE_PROJECT_ID:smoke",
+      "--var",
+      "FIREBASE_API_KEY:local-only",
     ],
     { stdio: "inherit" },
   );
@@ -104,7 +112,21 @@ try {
     return response;
   }
   assert.equal((await call("/api/workspace")).status, 401);
+  const home = await call("/");
+  assert.ok([302, 307].includes(home.status));
+  assert.equal(new URL(home.headers.get("location"), url).pathname, "/login");
+  const signIn = await call("/login");
+  assert.equal(signIn.status, 200);
+  const html = await signIn.text();
+  assert.match(html, /LINE でログイン/);
+  assert.match(html, /Google でログイン/);
+  assert.doesNotMatch(html, /type="password"/);
+  assert.equal((await call("/login.html")).status, 404);
   assert.equal((await call("/setup.html")).status, 404);
+  assert.equal(
+    (await call("/auth/verify", "POST", { password: "retired" })).status,
+    404,
+  );
   const foreign = await fetch(url + "/auth/register", {
     method: "POST",
     headers: { Origin: "https://other.example" },
