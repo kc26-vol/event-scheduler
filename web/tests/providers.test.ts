@@ -11,6 +11,32 @@ const line = {
   LINE_CHANNEL_SECRET: "test-secret",
 };
 
+test("provider requests reject redirects without following them with credentials", async (t) => {
+  const destinations: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+    assert.equal(init.redirect, "manual");
+    destinations.push(url);
+    return Response.redirect("https://redirect.example.test/", 307);
+  });
+
+  await assert.rejects(
+    verifyLine(
+      line,
+      "https://scheduler.test/auth/line-callback",
+      "code",
+      "nonce",
+    ),
+    { reason: "line-exchange", providerStatus: 307 },
+  );
+  await assert.rejects(verifyGoogle(firebase, "test-id-token"), {
+    status: 401,
+  });
+  assert.deepEqual(destinations, [
+    "https://api.line.me/oauth2/v2.1/token",
+    "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=test-key",
+  ]);
+});
+
 test("Google exchanges a recent project sign-in for the upstream Google ID", async (t) => {
   const now = Math.floor(Date.now() / 1000);
   const claims = {
