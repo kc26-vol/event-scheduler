@@ -148,6 +148,7 @@ test("only an invited email can enroll once and link a provider, then sign in us
   assert.equal(repeat.status, 202);
   assert.deepEqual(await repeat.json(), generic);
   assert.equal(outbox.length, 1);
+  assert.equal(linked.finish.headers.get("location"), "/");
   const replay = await request(
     env,
     linked.callback,
@@ -160,6 +161,7 @@ test("only an invited email can enroll once and link a provider, then sign in us
       .status,
     401,
   );
+  assert.equal(replay.headers.get("location"), "/login?error=line-state");
   await request(env, "/auth/logout", "GET", undefined, linked.cookie);
   assert.equal(
     (await request(env, "/api/workspace", "GET", undefined, linked.cookie))
@@ -219,13 +221,17 @@ test("only an invited email can enroll once and link a provider, then sign in us
   lineSubject = "unlinked-line-user";
   const unlinked = await line("");
   assert.equal(
+    unlinked.finish.headers.get("location"),
+    "/login?error=line-account",
+  );
+  assert.equal(
     (await request(env, "/api/workspace", "GET", undefined, unlinked.cookie))
       .status,
     401,
   );
   assert.equal(
     duplicateIdentity.finish.headers.get("location"),
-    "/link-account?error=provider",
+    "/link-account?error=line-conflict",
   );
   const retry = await line(duplicateIdentity.cookie);
   assert.equal(retry.finish.headers.get("location"), "/");
@@ -432,4 +438,102 @@ test("Google links the verified identity after email redemption and signs it in 
     ).results,
     [{ provider: "google", subject }],
   );
+});
+
+test("LINE callback reports the failing step without reflecting identifiers or provider text", async (t) => {
+  const env = {
+    ...(await scheduler(t)),
+    LINE_CHANNEL_ID: "channel",
+    LINE_CHANNEL_SECRET: "sensitive-channel-secret",
+  };
+  const events: unknown[][] = [];
+  t.mock.method(console, "warn", (...args: unknown[]) => {
+    events.push(args);
+  });
+  const sensitive = "private-test-value@example.test";
+  let upstream = "exchange";
+  const actualFetch = globalThis.fetch;
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.startsWith("https://api.line.me/"))
+        return actualFetch(input, init);
+      if (url.endsWith("/token") && upstream !== "exchange")
+        return Response.json({ id_token: sensitive });
+      return Response.json(
+        {
+          error: upstream === "exchange" ? "invalid_grant" : sensitive,
+          error_description: sensitive,
+        },
+        { status: upstream === "exchange" ? 400 : 401 },
+      );
+    },
+  );
+  async function start(cookie = "") {
+    const response = await request(env, "/auth/line-start", "POST", {}, cookie);
+    const authorize = new URL(((await response.json()) as { url: string }).url);
+    const callback = new URL(authorize.searchParams.get("redirect_uri")!);
+    callback.searchParams.set("state", authorize.searchParams.get("state")!);
+    callback.searchParams.set("code", sensitive);
+    return { callback, cookie: cookies(cookie, response) };
+  }
+  async function finish(
+    flow: Awaited<ReturnType<typeof start>>,
+    reason: string,
+  ) {
+    const result = await request(
+      env,
+      flow.callback.href,
+      "GET",
+      undefined,
+      flow.cookie,
+    );
+    assert.equal(result.status, 303);
+    assert.equal(result.headers.get("location"), "/login?error=" + reason);
+    const event = events.at(-1)!;
+    assert.equal(event[0], "LINE callback failed");
+    assert.doesNotMatch(
+      JSON.stringify(event),
+      /private-test-value|sensitive-channel|es_line|https:|error_description/,
+    );
+    return event[1] as Record<string, unknown>;
+  }
+
+  let flow = await start();
+  const noCookie = await finish({ ...flow, cookie: "" }, "line-state");
+  assert.equal(noCookie.stage, "browser_cookie_missing");
+  flow.callback.searchParams.delete("code");
+  flow.callback.searchParams.set("error", "ACCESS_DENIED");
+  flow.callback.searchParams.set("error_description", sensitive);
+  assert.equal(
+    (await finish(flow, "line-denied")).providerError,
+    "access_denied",
+  );
+  flow = await start();
+  flow.callback.searchParams.delete("code");
+  await finish(flow, "line-code");
+  assert.deepEqual(await finish(await start(), "line-exchange"), {
+    reason: "line-exchange",
+    stage: "provider",
+    providerStatus: 400,
+    providerError: "invalid_grant",
+  });
+  upstream = "verification";
+  assert.deepEqual(await finish(await start(), "line-verification"), {
+    reason: "line-verification",
+    stage: "provider",
+    providerStatus: 401,
+  });
+
+  // A browser-bound transaction must retain the live enrollment that initiated it.
+  flow = await start();
+  await env.DB.prepare("UPDATE login_oauth SET enrollment_hash=?")
+    .bind("mismatched-enrollment")
+    .run();
+  await finish(flow, "line-enrollment");
+  flow = await start();
+  await env.DB.prepare("DROP TABLE login_oauth").run();
+  assert.equal((await finish(flow, "line-internal")).stage, "consume_state");
 });

@@ -4,13 +4,14 @@ import { currentAccount, currentEnrollment } from "@/lib/accounts";
 import { setting } from "@/lib/auth";
 import { bindings } from "@/lib/runtime";
 import Login from "./Login";
+import { recoveryMessage, type LineReason } from "@/lib/line-feedback";
 
 export default async function AccountProviderPage({
   link = false,
-  failed = false,
+  reason,
 }: {
   link?: boolean;
-  failed?: boolean;
+  reason?: LineReason | "provider";
 }) {
   const env = bindings();
   const req = new Request("https://scheduler.local", {
@@ -18,9 +19,10 @@ export default async function AccountProviderPage({
   });
   if (await currentAccount(req, env)) redirect("/");
   const enrollment = await currentEnrollment(req, env);
-  if (link && !enrollment) redirect("/register");
+  if (link && !enrollment)
+    redirect(reason ? "/login?error=line-enrollment" : "/register");
   if (!link && enrollment)
-    redirect(failed ? "/link-account?error=provider" : "/link-account");
+    redirect(reason ? "/link-account?error=" + reason : "/link-account");
 
   const projectId = env.FIREBASE_PROJECT_ID;
   const apiKey = env.FIREBASE_API_KEY;
@@ -39,7 +41,7 @@ export default async function AccountProviderPage({
           : undefined
       }
       line={Boolean(env.LINE_CHANNEL_ID && env.LINE_CHANNEL_SECRET)}
-      failed={failed}
+      initialError={recoveryMessage(reason)}
     />
   );
 }

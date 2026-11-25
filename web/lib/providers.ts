@@ -11,10 +11,54 @@ interface LineSettings {
 
 const denied = "認証を確認できませんでした。もう一度ログインしてください。";
 
+export type LineCheck =
+  | "missing_id_token"
+  | "invalid_response"
+  | "subject"
+  | "issuer"
+  | "audience"
+  | "nonce"
+  | "expiry";
+type LineStep = "line-exchange" | "line-verification";
+const oauthErrors = new Set([
+  "invalid_request",
+  "invalid_client",
+  "invalid_grant",
+  "unauthorized_client",
+  "unsupported_grant_type",
+  "invalid_scope",
+  "invalid_token",
+  "access_denied",
+  "server_error",
+  "temporarily_unavailable",
+]);
+export function oauthError(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const label = value.toLowerCase();
+  return oauthErrors.has(label) ? label : undefined;
+}
+
+export class LineProviderError extends HttpError {
+  constructor(
+    readonly reason: LineStep,
+    readonly providerStatus?: number,
+    readonly providerError?: string,
+    readonly checkName?: LineCheck,
+  ) {
+    super(
+      providerStatus && providerStatus < 500 && providerStatus !== 429
+        ? 401
+        : 503,
+      denied,
+    );
+  }
+}
+
 async function providerResponse<T>(
   url: string,
   request: RequestInit,
-): Promise<T> {
+  step?: LineStep,
+): Promise<{ body: T; status: number }> {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -23,12 +67,36 @@ async function providerResponse<T>(
       signal: AbortSignal.timeout(10000),
     });
   } catch {
+    if (step) throw new LineProviderError(step);
     throw new HttpError(503, "認証サービスに接続できませんでした。");
+  }
+  if (!response.ok && step) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: unknown;
+    } | null;
+    throw new LineProviderError(
+      step,
+      response.status,
+      oauthError(payload?.error),
+    );
   }
   if (!response.ok && (response.status >= 500 || response.status === 429))
     throw new HttpError(503, "認証サービスを一時的に利用できません。");
   check(response.ok, denied, 401);
-  return (await response.json()) as T;
+  try {
+    const body = await response.json();
+    if (step && (!body || typeof body !== "object")) throw Error();
+    return { body: body as T, status: response.status };
+  } catch {
+    if (step)
+      throw new LineProviderError(
+        step,
+        response.status,
+        undefined,
+        "invalid_response",
+      );
+    throw new HttpError(503, "認証サービスの応答を確認できませんでした。");
+  }
 }
 
 interface FirebaseClaims {
@@ -67,7 +135,9 @@ export async function verifyGoogle(
   );
 
   // Firebase authenticates this exact token before any of its claims are trusted.
-  const { users } = await providerResponse<{ users?: FirebaseAccount[] }>(
+  const {
+    body: { users },
+  } = await providerResponse<{ users?: FirebaseAccount[] }>(
     "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=" +
       encodeURIComponent(env.FIREBASE_API_KEY),
     {
@@ -154,7 +224,10 @@ export async function verifyLine(
     503,
   );
   check(code && nonce, denied, 401);
-  const { id_token } = await providerResponse<{ id_token?: string }>(
+  const {
+    body: { id_token },
+    status: exchangeStatus,
+  } = await providerResponse<{ id_token?: string }>(
     "https://api.line.me/oauth2/v2.1/token",
     {
       method: "POST",
@@ -166,32 +239,46 @@ export async function verifyLine(
         client_secret: env.LINE_CHANNEL_SECRET,
       }),
     },
+    "line-exchange",
   );
-  check(id_token, denied, 401);
-  const claims = await providerResponse<{
+  if (typeof id_token !== "string" || !id_token)
+    throw new LineProviderError(
+      "line-exchange",
+      exchangeStatus,
+      undefined,
+      "missing_id_token",
+    );
+  const { body: claims, status: verificationStatus } = await providerResponse<{
     sub?: string;
     nonce?: string;
     aud?: string;
     iss?: string;
     exp?: number;
-  }>("https://api.line.me/oauth2/v2.1/verify", {
-    method: "POST",
-    body: new URLSearchParams({
-      id_token,
-      client_id: env.LINE_CHANNEL_ID,
-      nonce,
-    }),
-  });
-  check(
-    typeof claims.sub === "string" &&
-      claims.sub &&
-      claims.iss === "https://access.line.me" &&
-      claims.nonce === nonce &&
-      claims.aud === env.LINE_CHANNEL_ID &&
-      typeof claims.exp === "number" &&
-      claims.exp > Date.now() / 1000,
-    denied,
-    401,
+  }>(
+    "https://api.line.me/oauth2/v2.1/verify",
+    {
+      method: "POST",
+      body: new URLSearchParams({
+        id_token,
+        client_id: env.LINE_CHANNEL_ID,
+        nonce,
+      }),
+    },
+    "line-verification",
   );
+  function invalid(name: LineCheck): never {
+    throw new LineProviderError(
+      "line-verification",
+      verificationStatus,
+      undefined,
+      name,
+    );
+  }
+  if (typeof claims.sub !== "string" || !claims.sub) return invalid("subject");
+  if (claims.iss !== "https://access.line.me") return invalid("issuer");
+  if (claims.aud !== env.LINE_CHANNEL_ID) return invalid("audience");
+  if (claims.nonce !== nonce) return invalid("nonce");
+  if (typeof claims.exp !== "number" || !(claims.exp > Date.now() / 1000))
+    return invalid("expiry");
   return claims.sub;
 }

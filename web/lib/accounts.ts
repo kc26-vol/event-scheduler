@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { check, type Bindings } from "./db";
+import { check, HttpError, type Bindings } from "./db";
 
 export type Account = {
   id: number;
@@ -79,6 +79,11 @@ export const currentAccount = (req: Request, env: Bindings) =>
 export const currentEnrollment = (req: Request, env: Bindings) =>
   session(req, env, "enroll");
 
+export class EventInitializationError extends HttpError {
+  constructor() {
+    super(503, "イベントの準備を完了できませんでした");
+  }
+}
 // The enrollment identity insert and the conversion into a normal login commit together.
 // Second submissions cannot claim an already linked account or move an identity to another person.
 export async function completeIdentity(
@@ -145,7 +150,11 @@ export async function completeIdentity(
       : "未登録、または利用できないアカウントです",
     enrollment ? 409 : 403,
   );
-  await initializeNewEvent(db, digest(raw));
+  try {
+    await initializeNewEvent(db, digest(raw));
+  } catch {
+    throw new EventInitializationError();
+  }
   return sessionHeaders(raw, "login");
 }
 
