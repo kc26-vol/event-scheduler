@@ -1,172 +1,50 @@
-# デプロイワークフローのセットアップ
+# Cloudflare Workers デプロイ
 
-| トリガー | デプロイ先 |
+| GitHub イベント | 動作 |
 |---|---|
-| `main` への push | staging |
-| Release の公開 | 本番 |
-| 手動実行 (`workflow_dispatch`) | 選択 |
+| Pull request | Node 24 で型検査・テスト・OpenNext ビルド。ローカル D1/R2 を使い HTTP 経由で初期設定、ログイン、日程、Excel・ZIP 出力、写真のアクセス制御を検証 |
+| main の Worker・ワークフロー変更 | staging をデプロイ |
+| Release の公開 | リリースのコミットを production にデプロイ |
+| Deploy to Cloudflare の手動実行 | 選択した ref と環境をデプロイ |
 
-認証は**発行プロファイル**を使います。OIDC への移行は別タスクです
-(下記「OIDC への移行」を参照)。
+## Shion のアカウントと GitHub の設定
 
-このリポジトリは public のため、フォークからの PR で発火しないトリガー
-(`push` / `release` / `workflow_dispatch`) のみを使っています。
-GitHub の Secrets はフォークからの PR には渡りません。
+Cloudflare ダッシュボードでデプロイ先のアカウント ID を確認し、workers.dev サブドメインと R2 を有効にします。Workers の CPU 制限は、大会データでの自動配置・写真入り Excel 作成・既存パスワードのハッシュ検証に必要な処理時間に合わせてください。
 
-## 1. 発行プロファイルを取得する
+GitHub の **Settings → Environments** で `staging` と `production` のそれぞれに設定します。
 
-SCM (Kudu) のベーシック認証が有効である必要があります。Terraform で
-`scm_basic_auth_enabled = true` として管理しています (FTP は無効のまま)。
-
-```bash
-RG=kcjp26-event-scheduler-dev
-
-az webapp deployment list-publishing-profiles \
-  -n kcjp26-event-scheduler-staging -g $RG --xml
-
-az webapp deployment list-publishing-profiles \
-  -n kcjp26-event-scheduler-dev-app -g $RG --xml
-```
-
-出力された XML **全体**をそのまま GitHub Secret に貼り付けます。
-
-> ポータルからでも取得できます:
-> **App Service → 概要 → 発行プロファイルの取得**
-
-## 2. GitHub 側の設定
-
-### 2-1. Environments
-
-`Settings > Environments` で **`staging`** と **`production`** を作成します。
-
-**`production` には Required reviewers を設定してください。**
-発行プロファイル方式では認証自体にゲートが掛からないため、
-**環境の承認が唯一のデプロイゲート**になります。
-
-### 2-2. Secrets
-
-`Settings > Secrets and variables > Actions > Secrets`
-
-**環境スコープ**で登録します (リポジトリ Secret にしないこと)。
-両環境で同じ名前 `AZURE_PUBLISH_PROFILE` を使い、どちらが使われるかは
-ジョブの `environment:` が決めます。
-
-| 環境 | 名前 | 値 |
+| 種類 | 名前 | 値 |
 |---|---|---|
-| `staging` | `AZURE_PUBLISH_PROFILE` | staging の発行プロファイル XML 全体 |
-| `production` | `AZURE_PUBLISH_PROFILE` | 本番の発行プロファイル XML 全体 |
+| Variable | `CLOUDFLARE_ACCOUNT_ID` | Shion の対象アカウント ID |
+| Secret | `CLOUDFLARE_API_TOKEN` | このアカウントの Workers Scripts、D1、Workers R2 Storage に編集権限を持つ API トークン |
+| Secret | `SESSION_SECRET` | 環境専用のランダムなセッション署名鍵。変更すると全員が再ログイン |
+| Secret | `SETUP_TOKEN` | 初回設定を実行する人にだけ渡すランダムなトークン |
 
-環境スコープにすることで、**本番の発行プロファイルは `production` 環境の
-承認を通らないと読み出せません**。リポジトリ Secret だとどのジョブからも
-読めてしまいます。
+署名鍵と初期設定トークンにはそれぞれ別の値を生成します (`openssl rand -hex 32`)。環境の設定値は GitHub Actions の deploy ジョブで使用します。
 
-`gh` で入れる場合:
+ジョブは検証済みバンドルを受け取り、対象アカウントの `event-scheduler-staging` または `event-scheduler-production` の D1 と、同名に `-storage` を付けた R2 バケットを検索します。初回は作成し、以降は既存のものを再使用します。D1 に未適用のマイグレーションを実行してから、Worker・アセット・シークレットを配置します。最後に実 URL の `/api/health` で Worker と D1 の応答を検証します。各環境の URL は Actions の deployment に表示されます。
 
-```bash
-RG=kcjp26-event-scheduler-dev
-az webapp deployment list-publishing-profiles -n kcjp26-event-scheduler-staging -g $RG --xml \
-  | gh secret set AZURE_PUBLISH_PROFILE --env staging
-az webapp deployment list-publishing-profiles -n kcjp26-event-scheduler-dev-app -g $RG --xml \
-  | gh secret set AZURE_PUBLISH_PROFILE --env production
+## 既存イベントを移す
+
+まず staging の専用リソースでリハーサルします。本番切替時は旧アプリの更新とバックアップジョブを止め、同じ時点の SQLite とファイルをコピーします。SQLite はオンラインバックアップか停止後の一貫したコピーを使用します。
+
+1. 対象環境へ先にデプロイしてスキーマを作ります。データ取り込み前はブラウザの初期設定を実行せず、D1 のイベント用テーブルが空であることを確認します。
+2. 作業マシン上で対象アカウントの `CLOUDFLARE_ACCOUNT_ID` と `CLOUDFLARE_API_TOKEN` を設定します。以下はリポジトリのルートから実行します。`DATA_COPY` は旧環境データのコピーを置いた絶対パス、`SQL_OUT` は非公開ディレクトリの未使用ファイル名です。
+3. SQLite とオブジェクトを検証してインポートします。
+
+```sh
+(cd web && npm ci && node scripts/prepare-cloudflare.mjs staging)
+uv run --no-sync scripts/export_d1.py "$DATA_COPY/scheduler.db" "$SQL_OUT"
+uv run --no-sync scripts/import_objects.py "$DATA_COPY" --config web/wrangler.deploy.json
+(cd web && npx --no-install wrangler d1 execute DB --config wrangler.deploy.json --remote --file "$SQL_OUT")
+uv run --no-sync scripts/import_objects.py "$DATA_COPY" --config web/wrangler.deploy.json --apply-remote
 ```
 
-### 2-3. Variables
+SQL にはログイン設定や個人情報が含まれます。SQL の再投入先には空の D1 を使用してください。オブジェクト転送は同じ凍結コピーから再実行できます。ファイルをすべて転送してから D1 の履歴を登録します。旧バックアップ ID には公開スナップショット ID との衝突を避けるため `legacy-backup-` が付きます。公開中のスナップショット ID と API キーは維持します。
 
-`Settings > Secrets and variables > Actions > Variables`
+4. 旧環境とセッション数・スタッフ数・配置数を照合し、既存パスワードでのログイン、スタッフ写真、バックアップ ZIP と公開 API を確認します。旧環境の環境変数だけでパスワードを管理していた場合は、Worker の `APP_PASSWORD` と `RESET_PASSWORD` に元の値を設定します。
+5. production でも同じ手順を実施し、利用者と外部 API クライアントの接続先を切り替えます。新規イベントだけの場合はデータ移行を省略し、初回アクセス時に `SETUP_TOKEN` を使って設定します。
 
-| 名前 | 値 |
-|---|---|
-| `AZURE_WEBAPP_NAME_STAGING` | `kcjp26-event-scheduler-staging` |
-| `AZURE_WEBAPP_NAME_PROD` | `kcjp26-event-scheduler-dev-app` |
+## 切り戻し
 
-## 3. 動作確認
-
-1. 手動実行 (`Actions > Deploy > Run workflow`) で `staging` を選ぶ
-2. 成功したら `main` に push して自動デプロイを確認
-3. 本番は Release を作成して確認 (承認ゲートが働くこと)
-
-## ワークフローが守っていること
-
-デプロイ前後に、過去に踏んだ問題を検査しています。
-
-| 検査 | 目的 |
-|---|---|
-| `frontend/dist` の同梱確認 | Oryx は Node をビルドしないため、無いとアプリ本体が表示されない |
-| `requirements.txt` の同梱確認 | 無いと Python 依存がインストールされない |
-| `.env*` の混入確認 | シークレットをデプロイ物に含めない |
-| `DATA_DIR` の検証 | zip デプロイは wwwroot を丸ごと置き換えるため、実データが wwwroot 配下にあると消える |
-| 起動確認 (`login.html` が 200) | `/home` のマウント未完了などによる起動失敗を検知する |
-
-`DATA_DIR` の検証は Kudu の `/api/settings` から読んでいます
-(発行プロファイル方式では `az` が使えないため)。取り出した資格情報は
-`::add-mask::` でログから伏せています。
-
-## アプリ設定・データについて
-
-ワークフローは**アプリ設定 (環境変数) を変更しません**。変更は
-`make sync-settings` で明示的に行います。
-
-デプロイは `wwwroot` のみを置き換え、`/home/data` (DB・アップロード) には
-触れません。**データに影響しうる変更を出すときは手元から `make deploy`**
-を使ってください (バックアップ → デプロイ → データ件数検証を強制します)。
-
-## OIDC への移行 (別タスク)
-
-発行プロファイルは**長期シークレット**です。public リポジトリでもあるため、
-本来は Workload Identity Federation (OIDC) が望ましい方式です。
-
-移行が保留になっている理由は**権限**です。
-
-```
-現在のロール: Contributor (RG kcjp26-event-scheduler-dev)
-Contributor の NotActions: Microsoft.Authorization/*/Write
-→ サービスプリンシパルへのロール割り当てができない
-```
-
-RG の Owner (`wakadanna.com_hotmail.co.jp#EXT#@...`) に依頼が必要です。
-
-### 移行手順
-
-1. アプリ登録を作る (テナントの `allowedToCreateApps` が true なので実行可能)
-
-```bash
-APP_ID=$(az ad app create --display-name "github-actions-event-scheduler" --query appId -o tsv)
-az ad sp create --id "$APP_ID"
-```
-
-2. フェデレーション資格情報を登録する。**`subject` に環境名を含めることで、
-   その環境の承認を通った実行だけが認証できる** (ワークフローを書き換えても
-   迂回できないゲートになる)
-
-```bash
-REPO="kc26-vol/event-scheduler"
-for ENV in staging production; do
-  az ad app federated-credential create --id "$APP_ID" --parameters '{
-    "name": "github-'"$ENV"'",
-    "issuer": "https://token.actions.githubusercontent.com",
-    "subject": "repo:'"$REPO"':environment:'"$ENV"'",
-    "audiences": ["api://AzureADTokenExchange"]
-  }'
-done
-```
-
-3. **ロールを割り当てる (要 Owner / ユーザーアクセス管理者)**
-
-```bash
-SUB=$(az account show --query id -o tsv)
-az role assignment create --assignee "$APP_ID" --role Contributor \
-  --scope "/subscriptions/$SUB/resourceGroups/kcjp26-event-scheduler-dev"
-```
-
-4. ワークフローを変更する
-
-   - `permissions:` に `id-token: write` を追加
-   - `azure/login@v2` (client-id / tenant-id / subscription-id) を追加
-   - `azure/webapps-deploy@v3` の `publish-profile` を外す
-   - `DATA_DIR` の検証を Kudu API から `az webapp config appsettings list` に戻す
-
-5. 発行プロファイルの Secrets を削除し、SCM のベーシック認証を無効に戻す
-
-```bash
-# infra/envs/*/main.tf で scm_basic_auth_enabled = false にして apply
-```
+互換性のある以前の Worker は Cloudflare の Worker バージョンから再配置できます。コードの切り戻しと D1 の復元は別操作です。データの復元時は書き込みを止め、対象時刻の D1 と R2 オブジェクトを揃えて検証します。移行中に旧 Azure へ戻す場合、新環境で受け付けた更新を照合してから接続先を戻します。既存 Azure リソースと移行元ファイルはこのワークフローでは削除しません。
