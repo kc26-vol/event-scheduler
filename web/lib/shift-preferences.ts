@@ -5,6 +5,7 @@ export interface PreferenceWindow {
   opensAt: string | null;
   closesAt: string | null;
   status: "unconfigured" | "upcoming" | "open" | "closed";
+  serverNow: string;
 }
 
 export interface ShiftPreferences extends PreferenceWindow {
@@ -18,11 +19,12 @@ const closeKey = "shift_preferences_close_at";
 const windowBounds = `SELECT
   (SELECT value FROM app_settings WHERE key='${openKey}') AS opensAt,
   (SELECT value FROM app_settings WHERE key='${closeKey}') AS closesAt`;
-const windowQuery = `SELECT opensAt, closesAt, CASE
+const windowQuery = `SELECT opensAt, closesAt, serverNow, CASE
   WHEN opensAt IS NULL OR closesAt IS NULL THEN 'unconfigured'
-  WHEN strftime('%Y-%m-%dT%H:%M:%fZ','now') < opensAt THEN 'upcoming'
-  WHEN strftime('%Y-%m-%dT%H:%M:%fZ','now') < closesAt THEN 'open'
-  ELSE 'closed' END AS status FROM (${windowBounds})`;
+  WHEN serverNow < opensAt THEN 'upcoming'
+  WHEN serverNow < closesAt THEN 'open'
+  ELSE 'closed' END AS status FROM (${windowBounds}),
+  (SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now') AS serverNow)`;
 
 export async function getPreferenceWindow(db: D1Database) {
   return (await db.prepare(windowQuery).first<PreferenceWindow>())!;
@@ -94,13 +96,21 @@ export async function preferenceRoute(
     const opensAt = utc(input.opensAt),
       closesAt = utc(input.closesAt);
     check(opensAt < closesAt, "締切は開始日時より後に設定してください");
+    const { previousOpensAt, previousClosesAt } = input;
+    check(
+      (previousOpensAt === null || typeof previousOpensAt === "string") &&
+        (previousClosesAt === null || typeof previousClosesAt === "string"),
+      "編集前の受付期間が必要です。再読み込みしてください。",
+    );
     await guardedBatch(db, [
       db
         .prepare(
           `UPDATE scheduler_revision SET version=CASE
-        WHEN EXISTS (SELECT 1 ${liveLogin} AND a.role='admin') THEN version+1 ELSE -1 END WHERE id=1`,
+        WHEN EXISTS (SELECT 1 ${liveLogin} AND a.role='admin')
+        AND EXISTS (SELECT 1 FROM (${windowBounds}) WHERE opensAt IS ? AND closesAt IS ?)
+        THEN version+1 ELSE -1 END WHERE id=1`,
         )
-        .bind(hash, account.id),
+        .bind(hash, account.id, previousOpensAt, previousClosesAt),
       putSetting(db, openKey, opensAt),
       putSetting(db, closeKey, closesAt),
     ]);

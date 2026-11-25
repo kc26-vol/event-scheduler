@@ -27,34 +27,31 @@ function useWindowStatus(
   reload: () => Promise<boolean>,
   online = true,
 ) {
-  const [now, setNow] = useState(() => Date.now());
-  const { opensAt, closesAt } = saved ?? {};
+  const { opensAt, closesAt, status, serverNow } = saved ?? {};
   useEffect(() => {
     if (!online) return;
     const onVisible = () => {
-      if (!document.hidden) {
-        setNow(Date.now());
-        void reload();
-      }
+      if (!document.hidden) void reload();
     };
     document.addEventListener("visibilitychange", onVisible);
     const interval = window.setInterval(onVisible, 30000);
-    const current = Date.now();
-    setNow(current);
-    const timers = [opensAt, closesAt].flatMap((value) => {
-      const delay = value ? Date.parse(value) - current : 0;
-      return delay > 0 && delay < 2_147_483_647
-        ? [window.setTimeout(onVisible, delay + 1)]
-        : [];
-    });
+    const boundary =
+      status === "upcoming" ? opensAt : status === "open" ? closesAt : null;
+    const delay =
+      boundary && serverNow
+        ? Date.parse(boundary) - Date.parse(serverNow)
+        : null;
+    const timer =
+      delay !== null && delay >= 0 && delay < 30000
+        ? window.setTimeout(onVisible, delay + 1)
+        : undefined;
     return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
+      window.clearTimeout(timer);
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [opensAt, closesAt, reload, online]);
-  if (closesAt && now >= Date.parse(closesAt)) return "closed";
-  return saved?.status;
+  }, [opensAt, closesAt, status, serverNow, reload, online]);
+  return status;
 }
 
 function sameSelections(a: number[], b: number[]) {
@@ -335,6 +332,8 @@ export function PreferenceWindowSettings() {
   const [draft, setDraft] = useState<{
     opensAt: string;
     closesAt: string;
+    previousOpensAt: string | null;
+    previousClosesAt: string | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -343,6 +342,11 @@ export function PreferenceWindowSettings() {
     opensAt: japanInput(saved?.opensAt ?? null),
     closesAt: japanInput(saved?.closesAt ?? null),
   };
+  const stale =
+    !!draft &&
+    !!saved &&
+    (draft.previousOpensAt !== saved.opensAt ||
+      draft.previousClosesAt !== saved.closesAt);
   return (
     <section aria-label="シフト希望の受付期間">
       <h2>シフト希望の受付期間</h2>
@@ -351,7 +355,7 @@ export function PreferenceWindowSettings() {
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            if (busy) return;
+            if (busy || !draft || stale) return;
             setError("");
             setMessage("");
             if (dates.opensAt >= dates.closesAt) {
@@ -361,13 +365,22 @@ export function PreferenceWindowSettings() {
             setBusy(true);
             try {
               await api(windowEndpoint, "PUT", {
-                opensAt: new Date(`${dates.opensAt}:00+09:00`).toISOString(),
-                closesAt: new Date(`${dates.closesAt}:00+09:00`).toISOString(),
+                opensAt:
+                  dates.opensAt === japanInput(draft.previousOpensAt)
+                    ? draft.previousOpensAt
+                    : new Date(`${dates.opensAt}:00+09:00`).toISOString(),
+                closesAt:
+                  dates.closesAt === japanInput(draft.previousClosesAt)
+                    ? draft.previousClosesAt
+                    : new Date(`${dates.closesAt}:00+09:00`).toISOString(),
+                previousOpensAt: draft.previousOpensAt,
+                previousClosesAt: draft.previousClosesAt,
               });
               if (await reload()) setDraft(null);
               setMessage("受付期間を保存しました。");
             } catch (err) {
               setError((err as Error).message);
+              await reload();
             } finally {
               setBusy(false);
             }
@@ -389,10 +402,19 @@ export function PreferenceWindowSettings() {
                   type="datetime-local"
                   name={key}
                   required
-                  disabled={busy}
+                  disabled={busy || stale}
                   value={dates[key]}
                   onChange={(e) => {
-                    setDraft({ ...dates, [key]: e.target.value });
+                    setDraft({
+                      ...dates,
+                      [key]: e.target.value,
+                      previousOpensAt: draft
+                        ? draft.previousOpensAt
+                        : saved.opensAt,
+                      previousClosesAt: draft
+                        ? draft.previousClosesAt
+                        : saved.closesAt,
+                    });
                     setMessage("");
                     setError("");
                   }}
@@ -400,12 +422,36 @@ export function PreferenceWindowSettings() {
               </label>
             ))}
           </div>
-          <button disabled={busy || !draft}>受付期間を保存</button>
+          <button disabled={busy || !draft || stale}>受付期間を保存</button>
+          {draft && (stale || error) && (
+            <button
+              type="button"
+              className="light"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                if (await reload()) {
+                  setDraft(null);
+                  setError("");
+                  setMessage("");
+                }
+                setBusy(false);
+              }}
+            >
+              未保存の変更を破棄して最新の受付期間を表示
+            </button>
+          )}
         </form>
       )}
       {!saved && !readError && <p>受付期間を読み込み中…</p>}
       {message && <p role="status">{message}</p>}
-      {error && <p role="alert">{error}</p>}
+      {stale ? (
+        <p role="alert">
+          受付期間が更新されました。最新の期間を確認してから編集し直してください。
+        </p>
+      ) : (
+        error && <p role="alert">{error}</p>
+      )}
     </section>
   );
 }

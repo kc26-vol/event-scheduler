@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import type { Staff, StaffPreferredSession } from "../lib/types";
-import type { ShiftPreferences } from "../lib/shift-preferences";
+import type {
+  PreferenceWindow,
+  ShiftPreferences,
+} from "../lib/shift-preferences";
 import { scheduler, loginFixture, request } from "./scheduler-fixture";
 
 const staffPath = "/api/shift-preferences";
@@ -10,6 +13,14 @@ const open = {
   opensAt: "2000-01-01T00:00:00.000Z",
   closesAt: "2999-01-01T00:00:00.000Z",
 };
+
+function withoutServerClock<T extends PreferenceWindow>({
+  serverNow,
+  ...data
+}: T) {
+  assert.equal(new Date(serverNow).toISOString(), serverNow);
+  return data;
+}
 
 async function fixture(t: TestContext) {
   const env = await scheduler(t);
@@ -32,8 +43,27 @@ async function fixture(t: TestContext) {
       loginFixture(db, name + "@example.test"),
     ),
   );
-  const setWindow = (body: unknown, cookie = admin) =>
-    request(env, windowPath, "PUT", body, cookie);
+  async function readWindow() {
+    const response = await request(env, windowPath, "GET", undefined, admin);
+    assert.equal(response.status, 200);
+    return response.json<PreferenceWindow>();
+  }
+  async function setWindow(body: unknown, cookie = admin) {
+    const previous = await readWindow();
+    return request(
+      env,
+      windowPath,
+      "PUT",
+      typeof body === "object" && body !== null
+        ? {
+            previousOpensAt: previous.opensAt,
+            previousClosesAt: previous.closesAt,
+            ...body,
+          }
+        : body,
+      cookie,
+    );
+  }
   async function read(cookie: string): Promise<ShiftPreferences> {
     const response = await request(env, staffPath, "GET", undefined, cookie);
     assert.equal(response.status, 200);
@@ -41,7 +71,18 @@ async function fixture(t: TestContext) {
   }
   const save = (cookie: string, body: unknown) =>
     request(env, staffPath, "PUT", body, cookie);
-  return { env, db, admin, alice, bob, unlinked, setWindow, read, save };
+  return {
+    env,
+    db,
+    admin,
+    alice,
+    bob,
+    unlinked,
+    readWindow,
+    setWindow,
+    read,
+    save,
+  };
 }
 
 test("only an admin may configure a valid submission period; saved choices remain readable outside it", async (t) => {
@@ -55,7 +96,11 @@ test("only an admin may configure a valid submission period; saved choices remai
   );
   assert.equal((await setWindow(open, alice)).status, 403);
   assert.deepEqual(
-    await (await request(env, windowPath, "GET", undefined, admin)).json(),
+    withoutServerClock(
+      await (
+        await request(env, windowPath, "GET", undefined, admin)
+      ).json<PreferenceWindow>(),
+    ),
     {
       opensAt: null,
       closesAt: null,
@@ -92,10 +137,13 @@ test("only an admin may configure a valid submission period; saved choices remai
     (await save(alice, { version: upcoming.version, sessionIds: [1] })).status,
     409,
   );
-  assert.deepEqual(await (await setWindow(open)).json(), {
-    ...open,
-    status: "open",
-  });
+  assert.deepEqual(
+    withoutServerClock(await (await setWindow(open)).json<PreferenceWindow>()),
+    {
+      ...open,
+      status: "open",
+    },
+  );
   const noStaff = await read(unlinked);
   assert.equal(noStaff.staffId, null);
   assert.equal(
@@ -139,6 +187,57 @@ test("only an admin may configure a valid submission period; saved choices remai
     204,
   );
   assert.deepEqual((await read(alice)).sessionIds, []);
+});
+
+test("a stale admin form cannot reopen a shortened window; a freshly loaded form can reopen it", async (t) => {
+  const { env, db, admin, alice, readWindow, setWindow, read, save } =
+    await fixture(t);
+  const put = (body: unknown) => request(env, windowPath, "PUT", body, admin);
+  assert.equal((await put(open)).status, 400);
+  assert.equal((await put({ ...open, previousOpensAt: null })).status, 400);
+  assert.equal((await setWindow(open)).status, 200);
+  const baseline = await readWindow();
+  const closed = { ...open, closesAt: "2001-01-01T00:00:00.000Z" };
+  assert.equal((await setWindow(closed)).status, 200);
+  const revision = () =>
+    db
+      .prepare("SELECT version FROM scheduler_revision WHERE id=1")
+      .first("version");
+  const afterClose = await revision();
+  const stale = await put({
+    opensAt: "1999-01-01T00:00:00.000Z",
+    closesAt: baseline.closesAt,
+    previousOpensAt: baseline.opensAt,
+    previousClosesAt: baseline.closesAt,
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(await revision(), afterClose);
+  const fresh = await readWindow();
+  assert.deepEqual(withoutServerClock(fresh), { ...closed, status: "closed" });
+  assert.equal(
+    (
+      await save(alice, {
+        version: (await read(alice)).version,
+        sessionIds: [1],
+      })
+    ).status,
+    409,
+  );
+  const reopened = await put({
+    ...open,
+    previousOpensAt: fresh.opensAt,
+    previousClosesAt: fresh.closesAt,
+  });
+  assert.equal(reopened.status, 200);
+  assert.equal(
+    (
+      await save(alice, {
+        version: (await read(alice)).version,
+        sessionIds: [1],
+      })
+    ).status,
+    204,
+  );
 });
 
 test("users choose assignable sessions for themselves while preserving unaffected priority and row IDs", async (t) => {
@@ -281,7 +380,10 @@ test("if the deadline is reached during a save, D1 rolls back additions, removal
     (await save(alice, { version: before.version, sessionIds: [2] })).status,
     409,
   );
-  assert.deepEqual(await read(alice), before);
+  assert.deepEqual(
+    withoutServerClock(await read(alice)),
+    withoutServerClock(before),
+  );
   assert.equal(await revision(), initialRevision);
 });
 

@@ -71,6 +71,8 @@ async function verifyShiftPreferences(
   assert.equal(savedWindow.opensAt, "2000-01-01T00:00:00.000Z");
   assert.equal(savedWindow.closesAt, "2099-01-01T00:00:00.000Z");
 
+  // Staff must still be able to save and observe the server deadline on a fast device.
+  await staffPage.clock.setFixedTime(new Date("2100-01-01T00:00:00Z"));
   await staffPage.goto(url + "/");
   const preferences = staffPage.getByRole("region", { name: "シフト希望" });
   await preferences.getByRole("checkbox", { name: /Opening/ }).check();
@@ -83,13 +85,23 @@ async function verifyShiftPreferences(
     .getByRole("checkbox", { name: /Opening/, checked: true })
     .waitFor();
 
+  // Leave an earlier admin draft open while the deadline is changed elsewhere.
+  const adminWindow = adminPage.getByRole("region", {
+    name: "シフト希望の受付期間",
+  });
+  await adminWindow.getByLabel("受付開始（日本時間）").fill("1999-01-01T09:00");
   // Use second precision to cross the actual Worker deadline with the form open.
   const closesAt = new Date(Date.now() + 10000).toISOString();
   const closeWindow = await adminPage.request.put(
     url + "/api/preference-window",
     {
       headers: { Origin: url },
-      data: { opensAt: savedWindow.opensAt, closesAt },
+      data: {
+        opensAt: savedWindow.opensAt,
+        closesAt,
+        previousOpensAt: savedWindow.opensAt,
+        previousClosesAt: savedWindow.closesAt,
+      },
     },
   );
   assert.ok(closeWindow.ok());
@@ -113,6 +125,29 @@ async function verifyShiftPreferences(
     0,
   );
 
+  const [staleWindow] = await Promise.all([
+    adminPage.waitForResponse(
+      (res) =>
+        res.url() === url + "/api/preference-window" &&
+        res.request().method() === "PUT",
+    ),
+    adminWindow.getByRole("button", { name: "受付期間を保存" }).click(),
+  ]);
+  assert.equal(staleWindow.status(), 409);
+  const discard = adminWindow.getByRole("button", {
+    name: "未保存の変更を破棄して最新の受付期間を表示",
+  });
+  await discard.click();
+  await discard.waitFor({ state: "hidden" });
+  assert.equal(
+    await adminWindow.getByLabel("受付開始（日本時間）").inputValue(),
+    "2000-01-01T09:00",
+  );
+  assert.equal(
+    await adminWindow.getByLabel("受付終了（日本時間）").inputValue(),
+    new Date(Date.parse(closesAt) + 9 * 3600_000).toISOString().slice(0, 16),
+  );
+  await staffPage.clock.setSystemTime(new Date());
   await adminPage.goto(url + "/staffs");
   const crew = adminPage.getByRole("article").filter({ hasText: "Crew" });
   await crew.getByRole("button", { name: "希望・活動時間・配置制限" }).click();
