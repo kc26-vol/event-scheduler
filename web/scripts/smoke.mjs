@@ -248,29 +248,32 @@ try {
         secure: true,
         sameSite: "Lax",
       };
-      await context.addCookies([
+      const adminContext = await browser.newContext();
+      const adminPage = await adminContext.newPage();
+      await adminContext.addCookies([
         { ...scope, name: "es_session", value: admin.token, httpOnly: true },
         { ...scope, name: "es_offline", value: admin.offline },
       ]);
-      await page.goto(url + "/accounts");
-      await page
+      await adminPage.goto(url + "/accounts");
+      await adminPage
         .getByRole("button", { name: "スタッフ表示に切り替える" })
         .click();
-      await page
+      await adminPage
         .getByRole("button", { name: "管理者表示に切り替える" })
         .waitFor();
-      assert.equal(page.url(), url + "/");
-      assert.equal(await page.locator('a[href="/accounts"]').count(), 0);
+      assert.equal(adminPage.url(), url + "/");
+      assert.equal(await adminPage.locator('a[href="/accounts"]').count(), 0);
       assert.equal(
-        (await context.request.get(url + "/accounts")).status(),
+        (await adminContext.request.get(url + "/accounts")).status(),
         404,
       );
-      await page.goto(url + "/schedule#timetable");
-      await page
+      await adminPage.goto(url + "/schedule#timetable");
+      await adminPage
         .getByRole("button", { name: "管理者表示に切り替える" })
         .click();
-      await page.getByRole("link", { name: "アカウント管理" }).waitFor();
-      assert.equal(page.url(), url + "/schedule#timetable");
+      await adminPage.getByRole("link", { name: "アカウント管理" }).waitFor();
+      assert.equal(adminPage.url(), url + "/schedule#timetable");
+      await adminContext.close();
       await context.addCookies([
         {
           ...scope,
