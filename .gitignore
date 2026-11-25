@@ -43,3 +43,4 @@ tfplan
 *.tsbuildinfo
 *.d1.sql
 !web/app/uploads/
+web/wrangler.deploy.json
