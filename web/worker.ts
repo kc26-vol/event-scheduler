@@ -7,7 +7,26 @@ import { putSetting, type Bindings } from "./lib/db";
 // @ts-ignore Generated module exports are resolved by Wrangler.
 export * from "./.open-next/worker.js";
 export default {
-  fetch: nextWorker.fetch,
+  fetch(request: Request, env: Bindings, context: ExecutionContext) {
+    if (request.method === "GET" && env.APP_ORIGIN) {
+      const url = new URL(request.url);
+      if (/^\/(?:login|register|link-account)\/?$/.test(url.pathname)) {
+        // OAuth and enrollment cookies must be issued on the callback host.
+        const origin = new URL(env.APP_ORIGIN).origin;
+        if (url.origin !== origin) {
+          return new Response(null, {
+            status: 307,
+            headers: {
+              Location: origin + url.pathname + url.search,
+              "Cache-Control": "no-store",
+              "Referrer-Policy": "no-referrer",
+            },
+          });
+        }
+      }
+    }
+    return nextWorker.fetch(request, env, context);
+  },
   async scheduled(event: ScheduledController, env: Bindings) {
     try {
       const entry = await createArchive(

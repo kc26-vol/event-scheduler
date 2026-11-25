@@ -9,17 +9,17 @@ interface Props {
   email?: string;
   google?: { apiKey: string; authDomain: string; projectId: string };
   line: boolean;
-  failed?: boolean;
+  initialError?: string;
 }
 
-export default function Login({ title, email, google, line, failed }: Props) {
-  const [error, setError] = useState(
-    failed
-      ? email
-        ? "アカウント連携を完了できませんでした。ログイン方法を選んでもう一度お試しください。"
-        : "ログインを完了できませんでした。もう一度お試しください。"
-      : "",
-  );
+export default function Login({
+  title,
+  email,
+  google,
+  line,
+  initialError,
+}: Props) {
+  const [error, setError] = useState(initialError || "");
   const [busy, setBusy] = useState(false);
 
   async function googleSignIn(token: string) {

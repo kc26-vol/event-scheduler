@@ -1,3 +1,4 @@
+import { knownReason } from "@/lib/line-feedback";
 import AccountProviderPage from "@/components/AccountProviderPage";
 export const dynamic = "force-dynamic";
 export default async function Page({
@@ -6,6 +7,6 @@ export default async function Page({
   searchParams: Promise<{ error?: string }>;
 }) {
   return (
-    <AccountProviderPage failed={(await searchParams).error === "provider"} />
+    <AccountProviderPage reason={knownReason((await searchParams).error)} />
   );
 }

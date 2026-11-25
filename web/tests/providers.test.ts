@@ -117,15 +117,19 @@ test("LINE requests OpenID and validates the channel, nonce and provider before 
     await verifyLine(line, redirect, "code", "testnonce"),
     "line-user",
   );
-  for (const mismatch of [
-    { iss: "other" },
-    { aud: "other" },
-    { nonce: "other" },
-    { exp: 0 },
-  ]) {
+  for (const [checkName, mismatch] of Object.entries({
+    issuer: { iss: "other" },
+    audience: { aud: "other" },
+    nonce: { nonce: "other" },
+    expiry: { exp: 0 },
+    subject: { sub: "" },
+  })) {
     verified = { ...claims, ...mismatch };
     await assert.rejects(verifyLine(line, redirect, "code", "testnonce"), {
       status: 401,
+      reason: "line-verification",
+      providerStatus: 200,
+      checkName,
     });
   }
 });

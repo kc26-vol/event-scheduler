@@ -1,6 +1,7 @@
 import { check, HttpError, type Bindings } from "./db";
 import {
   type Account,
+  EventInitializationError,
   cookie,
   currentEnrollment,
   digest,
@@ -11,7 +12,15 @@ import {
   setCookie,
   token,
 } from "./accounts";
-import { lineAuthorize, verifyGoogle, verifyLine } from "./providers";
+import {
+  lineAuthorize,
+  LineProviderError,
+  type LineCheck,
+  oauthError,
+  verifyGoogle,
+  verifyLine,
+} from "./providers";
+import type { LineReason } from "./line-feedback";
 
 const json = (value: unknown, status = 200, headers = new Headers()) => {
   headers.set("Cache-Control", "no-store");
@@ -162,51 +171,99 @@ export async function accountRoute(
       "Referrer-Policy": "no-referrer",
     });
     setCookie(headers, "es_line", "", 0);
+    let destination = "/login";
+    let stage = "consume_state";
+    function failure(
+      reason: LineReason,
+      providerStatus?: number,
+      providerError?: string,
+      checkName?: LineCheck,
+    ) {
+      // This event is safe to query in Workers Logs. Callback URLs and provider payloads contain credentials.
+      console.warn("LINE callback failed", {
+        reason,
+        stage,
+        ...(providerStatus && { providerStatus }),
+        ...(providerError && { providerError }),
+        ...(checkName && { check: checkName }),
+      });
+      headers.set("Location", destination + "?error=" + reason);
+      return new Response(null, { status: 303, headers });
+    }
     try {
+      const state = params.get("state"),
+        browser = cookie(req, "es_line");
+      if (!state || !browser) {
+        stage = state ? "browser_cookie_missing" : "state_missing";
+        return failure("line-state");
+      }
       const row = await db
         .prepare(
           `DELETE FROM login_oauth WHERE state_hash=? AND browser_hash=? AND expires_at>? RETURNING nonce,enrollment_hash`,
         )
-        .bind(
-          digest(params.get("state") || ""),
-          digest(cookie(req, "es_line")),
-          now(),
-        )
+        .bind(digest(state), digest(browser), now())
         .first<{ nonce: string; enrollment_hash: string | null }>();
-      check(
-        row && params.get("code"),
-        "LINE ログインをやり直してください",
-        400,
-      );
-      check(
-        !row.enrollment_hash ||
-          row.enrollment_hash === digest(cookie(req, "es_session")),
-        "登録をやり直してください",
-        403,
-      );
+      if (!row) return failure("line-state");
+      if (row.enrollment_hash) {
+        stage = "enrollment_cookie";
+        if (row.enrollment_hash !== digest(cookie(req, "es_session")))
+          return failure("line-enrollment");
+        stage = "enrollment_session";
+        if (!(await currentEnrollment(req, env)))
+          return failure("line-enrollment");
+        destination = "/link-account";
+      }
+      stage = "authorization";
+      const code = params.get("code"),
+        providerError = oauthError(params.get("error"));
+      if (providerError === "access_denied")
+        return failure("line-denied", undefined, providerError);
+      if (!code || params.has("error"))
+        return failure("line-code", undefined, providerError);
+
+      stage = "provider";
       const subject = await verifyLine(
         env,
         origin(env) + "/auth/line-callback",
-        params.get("code")!,
+        code,
         row.nonce,
       );
-      const session = await completeIdentity(
-        db,
-        "line",
-        subject,
-        row.enrollment_hash,
-      );
+      stage = "complete_identity";
+      let session;
+      try {
+        session = await completeIdentity(
+          db,
+          "line",
+          subject,
+          row.enrollment_hash,
+        );
+      } catch (error) {
+        if (error instanceof EventInitializationError) {
+          destination = "/login"; // The identity link has already committed.
+          return failure("line-initialize");
+        }
+        if (error instanceof HttpError && error.status === 403)
+          return failure("line-account");
+        if (error instanceof HttpError && error.status === 409) {
+          if (await currentEnrollment(req, env))
+            return failure("line-conflict");
+          destination = "/login";
+          return failure("line-enrollment");
+        }
+        throw error;
+      }
       for (const value of session.getSetCookie())
         headers.append("Set-Cookie", value);
       headers.set("Location", "/");
     } catch (error) {
-      if (!(error instanceof HttpError))
-        console.error("LINE callback could not be completed");
-      headers.set(
-        "Location",
-        ((await currentEnrollment(req, env)) ? "/link-account" : "/login") +
-          "?error=provider",
-      );
+      if (error instanceof LineProviderError)
+        return failure(
+          error.reason,
+          error.providerStatus,
+          error.providerError,
+          error.checkName,
+        );
+      return failure("line-internal");
     }
     return new Response(null, { status: 303, headers });
   }
