@@ -40,7 +40,9 @@ try {
       "--var",
       "SESSION_SECRET:smoke-only",
       "--var",
-      "SETUP_TOKEN:smoke-setup",
+      "APP_PASSWORD:smoke-login",
+      "--var",
+      "RESET_PASSWORD:smoke-admin",
     ],
     { stdio: "inherit" },
   );
@@ -72,23 +74,20 @@ try {
     headers: { Origin: "https://other.example" },
   });
   assert.equal(foreign.status, 403);
+  const anonymous = await call("/");
   assert.equal(
-    (
-      await call("/auth/setup", "POST", {
-        setup_token: "smoke-setup",
-        login_password: "smoke-login",
-        admin_password: "smoke-admin",
-        app_title: "Smoke Event",
-      })
-    ).status,
-    200,
+    new URL(anonymous.headers.get("location"), url).pathname,
+    "/login.html",
   );
+  assert.equal((await call("/login.html")).status, 200);
+  assert.equal((await call("/setup.html")).status, 404);
+  assert.equal((await call("/auth/setup", "POST", {})).status, 404);
   const login = await call("/auth/verify", "POST", { password: "smoke-login" });
   assert.equal(login.status, 200);
   cookie = login.headers.get("set-cookie").split(";")[0];
   const schedule = await call("/schedule");
   assert.equal(schedule.headers.get("x-frame-options"), "DENY");
-  assert.match(await schedule.text(), /Smoke Event/);
+  assert.match(await schedule.text(), /Event Scheduler/);
   const room = await (
     await call("/api/rooms", "POST", { name: "Hall", capacity: 60 })
   ).json();
@@ -129,7 +128,7 @@ try {
   cookie = "";
   assert.equal((await call(photo)).status, 401);
   console.log(
-    "Worker setup, schedule, D1 writes, Excel, ZIP and private R2 routes passed.",
+    "Worker login, schedule, D1 writes, Excel, ZIP and private R2 routes passed.",
   );
   if (process.env.CHROME_BIN) {
     const { chromium } = await import("playwright-core");

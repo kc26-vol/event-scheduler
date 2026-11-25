@@ -5,7 +5,7 @@ import {
   pbkdf2Sync,
   timingSafeEqual,
 } from "node:crypto";
-import { check, putSetting, HttpError, type Bindings } from "./db";
+import { check, tables, HttpError, type Bindings } from "./db";
 
 const days = 7 * 24 * 3600;
 const cookie = "cs_session";
@@ -55,6 +55,28 @@ export async function setting(db: D1Database, key: string) {
       .first<string>("value")) ?? ""
   );
 }
+// Keep migrated D1 tables empty until an import or the first verified login.
+// Each statement in this atomic batch runs only when its predecessor inserted a row.
+async function seedEmptyEvent(db: D1Database) {
+  const empty = tables
+    .map((t) => "NOT EXISTS (SELECT 1 FROM " + t + ")")
+    .join(" AND ");
+  await db.batch([
+    db.prepare(
+      "INSERT INTO app_settings(key,value) SELECT 'setup_completed','1' WHERE " +
+        empty,
+    ),
+    db.prepare(
+      "INSERT INTO rooms(name,capacity,floor) SELECT '全体',0,0 WHERE changes()=1",
+    ),
+    db.prepare(
+      "INSERT INTO session_groups(label,\"order\") SELECT 'セッション',1 WHERE changes()=1",
+    ),
+    db.prepare(`INSERT INTO categories(key,label,color,"order")
+      SELECT 'reception','受付案内','#388e3c',1 WHERE changes()=1
+      UNION ALL SELECT 'social','懇親会','#7b1fa2',2 WHERE changes()=1`),
+  ]);
+}
 export async function auth(req: Request, env: Bindings, action: string) {
   const db = env.DB;
   if (action === "logout" && req.method === "GET")
@@ -67,45 +89,22 @@ export async function auth(req: Request, env: Bindings, action: string) {
         "Clear-Site-Data": '"cache", "cookies", "storage"',
       },
     });
+  check(action === "verify", "Not found", 404);
   check(req.method === "POST", "Method not allowed", 405);
   const body = (await req.json()) as Record<string, string>;
-  if (action === "setup") {
-    check(!(await setting(db, "setup_completed")), "設定済みです", 403);
-    check(
-      env.SETUP_TOKEN && equal(String(body.setup_token ?? ""), env.SETUP_TOKEN),
-      "セットアップトークンが必要です",
-      403,
-    );
-    check(
-      typeof body.login_password === "string" &&
-        body.login_password &&
-        typeof body.admin_password === "string" &&
-        body.admin_password,
-      "パスワードを入力してください",
-    );
-    await db.batch([
-      db.prepare("INSERT INTO app_settings VALUES('setup_completed','1')"),
-      putSetting(db, "login_password", hash(body.login_password)),
-      putSetting(db, "reset_password", hash(body.admin_password)),
-      putSetting(db, "app_title", body.app_title || "Event Scheduler"),
-      putSetting(db, "timezone", body.timezone || "Asia/Tokyo"),
-      db.prepare(
-        "INSERT INTO rooms(name,capacity,floor) SELECT '全体',0,0 WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE name='全体')",
-      ),
-      db.prepare(
-        "INSERT OR IGNORE INTO categories(key,label,color,\"order\") VALUES ('reception','受付案内','#388e3c',1),('social','懇親会','#7b1fa2',2)",
-      ),
-      db.prepare(
-        "INSERT INTO session_groups(label,\"order\") SELECT 'セッション',1 WHERE NOT EXISTS (SELECT 1 FROM session_groups)",
-      ),
-    ]);
-    return Response.json({ status: "ok" });
-  }
-  check(action === "verify", "Not found", 404);
+  const configured = (await setting(db, "setup_completed")) === "1";
+  const storedLogin =
+    configured && !env.APP_PASSWORD ? await setting(db, "login_password") : "";
+  const storedReset =
+    configured && !env.RESET_PASSWORD
+      ? await setting(db, "reset_password")
+      : "";
   check(
-    (await setting(db, "setup_completed")) === "1",
-    "初期設定が必要です",
-    403,
+    env.SESSION_SECRET &&
+      (env.APP_PASSWORD || storedLogin) &&
+      (env.RESET_PASSWORD || storedReset),
+    "デプロイ先の認証設定を確認してください",
+    503,
   );
   const ip = req.headers.get("cf-connecting-ip") || "local",
     now = Math.floor(Date.now() / 1000);
@@ -131,8 +130,9 @@ export async function auth(req: Request, env: Bindings, action: string) {
   const pwd = String(body.password ?? "");
   const ok = env.APP_PASSWORD
     ? equal(pwd, env.APP_PASSWORD)
-    : verify(pwd, await setting(db, "login_password"));
+    : verify(pwd, storedLogin);
   if (!ok) throw new HttpError(401, "パスワードが正しくありません");
+  if (!configured) await seedEmptyEvent(db);
   await db
     .prepare("UPDATE login_attempts SET failed=0 WHERE ip=? AND rowid<=?")
     .bind(ip, attempt.meta.last_row_id)

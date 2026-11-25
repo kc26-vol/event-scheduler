@@ -57,12 +57,13 @@ jobs:
       - name: Prepare Worker secrets
         env:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          SETUP_TOKEN: ${{ secrets.SETUP_TOKEN }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          RESET_PASSWORD: ${{ secrets.RESET_PASSWORD }}
         run: |
           node --input-type=module <<'JS'
           import { writeFileSync } from "node:fs";
           const secrets = {};
-          for (const key of ["SESSION_SECRET", "SETUP_TOKEN"]) {
+          for (const key of ["SESSION_SECRET", "APP_PASSWORD", "RESET_PASSWORD"]) {
             if (!process.env[key]) throw Error("Set environment secret " + key);
             secrets[key] = process.env[key];
           }

@@ -18,7 +18,6 @@ export default async function Page({
     notFound();
   const env = bindings(),
     hdr = await headers();
-  if (!(await setting(env.DB, "setup_completed"))) redirect("/setup.html");
   if (
     !signedIn(
       new Request("https://scheduler.local", {

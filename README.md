@@ -73,7 +73,7 @@ cp web/.dev.vars.example web/.dev.vars
 make dev
 ```
 
-`web/.dev.vars` の `SESSION_SECRET` と `SETUP_TOKEN` をローカル専用の値に変更し、`http://localhost:3000` で初期設定します。初回設定ではセットアップトークン、イベント名、参加者パスワード、管理者パスワードを入力します。
+`web/.dev.vars` の `SESSION_SECRET`、`APP_PASSWORD`、`RESET_PASSWORD` をそれぞれ別のローカル専用の値に変更します。`http://localhost:3000` から `APP_PASSWORD` でログインすると、空の D1 に初期データが作成されます。データ初期化時の確認には `RESET_PASSWORD` を使用します。
 
 | コマンド | 用途 |
 |---|---|
