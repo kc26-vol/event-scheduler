@@ -18,7 +18,7 @@ GitHub の **Settings → Environments** で `staging` と `production` のそ�
 | Variable | `CLOUDFLARE_ACCOUNT_ID` | Shion の対象アカウント ID |
 | Secret | `CLOUDFLARE_API_TOKEN` | このアカウントの Workers Scripts、D1、Workers R2 Storage に編集権限を持つ API トークン |
 | Secret | `INITIAL_ADMIN_EMAIL` | 最初の管理者のメールアドレス。名簿が空の環境を初めてデプロイする時に使用 |
-| Variable | `AUTH_EMAIL_FROM` | Cloudflare で設定した送信ドメインのアドレス (例 `scheduler@example.org`) |
+| Variable | `AUTH_EMAIL_FROM` | 登録リンクの送信元 `noreply@lfstaff.shion.dev` |
 | Variable | `APP_ORIGIN` | 任意。登録リンク・LINE コールバックに使う公開 URL。既定値はこの Worker の HTTPS workers.dev URL。カスタムドメインを使う場合は先に Worker へ割り当てる |
 | Variable | `FIREBASE_PROJECT_ID` / `FIREBASE_API_KEY` | Google を使う場合。Firebase のウェブアプリ設定の `projectId` と `apiKey` |
 | Variable | `FIREBASE_AUTH_DOMAIN` | 任意。既定値は `<projectId>.firebaseapp.com` |
@@ -31,11 +31,16 @@ GitHub の **Settings → Environments** で `staging` と `production` のそ�
 
 ## スタッフ個別ログインの準備
 
-1. **URL を決める。** 各環境の URL は既定で `https://event-scheduler-<環境>.<アカウントのサブドメイン>.workers.dev` です。以降は各環境の実際の URL を登録します。
-2. **メールの送信元を有効にする。** Cloudflare の **Compute → Email Service → Email Sending → Onboard Domain** で Cloudflare DNS のドメインを選び、指定された DNS レコードの検証を完了します。GitHub 環境変数 `AUTH_EMAIL_FROM` にはそのドメインのメールアドレスを設定します。Workers Free では Cloudflare 上で確認済みの宛先へ送れます。管理者が名簿に追加した任意の宛先にメールを送るには Workers Paid が必要です。[Cloudflare の送信設定](https://developers.cloudflare.com/email-service/get-started/send-emails/)・[プランごとの宛先制限](https://developers.cloudflare.com/email-service/)
+| GitHub 環境 | Worker | `APP_ORIGIN` | LINE の Callback URL |
+|---|---|---|---|
+| staging | `event-scheduler-staging` | `https://stg.lfstaff.shion.dev` | `https://stg.lfstaff.shion.dev/auth/line-callback` |
+| production | `event-scheduler-production` | `https://lfstaff.shion.dev` | `https://lfstaff.shion.dev/auth/line-callback` |
+
+1. **ドメインを Worker に割り当てる。** Cloudflare ダッシュボードで各 Worker の **Settings → Domains & Routes** から表のホスト名を Custom Domain として割り当てます。DNS と証明書が有効になったら各ホストの `/api/health` が `{"status":"ok"}` を返すことを確認します。このワークフローは割り当て済みのドメインを維持し、デプロイ後に `APP_ORIGIN` のヘルスチェックを実行します。[Cloudflare の Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
+2. **メールの送信元を有効にする。** Cloudflare の **Compute → Email Service → Email Sending → Onboard Domain** で Cloudflare DNS のドメインを選び、指定された DNS レコードの検証を完了します。送信ドメインは `lfstaff.shion.dev`、両環境の `AUTH_EMAIL_FROM` は `noreply@lfstaff.shion.dev` です。Workers Free では Cloudflare 上で確認済みの宛先へ送れます。管理者が名簿に追加した任意の宛先にメールを送るには Workers Paid が必要です。[Cloudflare の送信設定](https://developers.cloudflare.com/email-service/get-started/send-emails/)・[プランごとの宛先制限](https://developers.cloudflare.com/email-service/)
 3. **ログイン方法を設定する。** Google と LINE の両方、または用意できた一方から開始できます。両方を表示する場合は両方の設定を行います。
-   - **Google** — Firebase プロジェクトにウェブアプリを追加し、コンソールの **Authentication → Sign-in method** で Google を有効にします。**Authentication → Settings → Authorized domains** にアプリのホスト名を追加し、ウェブアプリ設定の `projectId`、`apiKey` を GitHub 環境変数に転記します。Google ログインには Firebase のウェブ SDK を使用します。[Firebase の Google ログイン](https://firebase.google.com/docs/auth/web/google-signin)
-   - **LINE** — LINE Developers コンソールでプロバイダーと **LINE Login** チャネルを作成し、アプリタイプに **Web app** を設定します。**LINE Login** タブの Callback URL に `https://<アプリのホスト名>/auth/line-callback` をそのまま登録します。権限は `openid` を使い、スタッフのメール確認は登録リンクで行います。開発中はチャネルの Admin と Tester が利用でき、全スタッフが利用する際にはチャネルを公開します。[LINE Login の設定](https://developers.line.biz/en/docs/line-login/getting-started/)・[コールバック URL の登録](https://developers.line.biz/en/docs/line-login/integrate-line-login/)
+   - **Google** — Firebase プロジェクトにウェブアプリを追加し、コンソールの **Authentication → Sign-in method** で Google を有効にします。**Authentication → Settings → Authorized domains** に対象環境のホスト名 (`stg.lfstaff.shion.dev` または `lfstaff.shion.dev`) を追加し、ウェブアプリ設定の `projectId`、`apiKey` を GitHub 環境変数に転記します。Google ログインには Firebase のウェブ SDK を使用します。[Firebase の Google ログイン](https://firebase.google.com/docs/auth/web/google-signin)
+   - **LINE** — LINE Developers コンソールでプロバイダーと **LINE Login** チャネルを作成し、アプリタイプに **Web app** を設定します。**LINE Login** タブの Callback URL に表の対象環境の Callback URL を登録します。権限は `openid` を使い、スタッフのメール確認は登録リンクで行います。開発中はチャネルの Admin と Tester が利用でき、全スタッフが利用する際にはチャネルを公開します。[LINE Login の設定](https://developers.line.biz/en/docs/line-login/getting-started/)・[コールバック URL の登録](https://developers.line.biz/en/docs/line-login/integrate-line-login/)
 4. **最初の管理者を登録する。** GitHub の Environment Secret `INITIAL_ADMIN_EMAIL` に管理者のメールアドレスを登録してデプロイします。完了後は本人が `/register` でそのアドレスに登録リンクを送り、受信したリンクを開いて Google または LINE を連携します。以降はその連携先でログインできます。
 5. **名簿を登録する。** 管理者が `/accounts` でスタッフまたは他の管理者のメールアドレスと権限を追加します。各自に `/register` を案内します。参加可否・権限・外部アカウントとの関連は D1 が管理します。
 
