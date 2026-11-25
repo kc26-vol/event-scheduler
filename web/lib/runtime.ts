@@ -13,5 +13,6 @@ export function dispatch(req: Request) {
       .split("/")
       .filter(Boolean)
       .map(decodeURIComponent),
+    getCloudflareContext().ctx,
   );
 }

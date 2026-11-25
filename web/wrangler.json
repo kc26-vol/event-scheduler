@@ -17,6 +17,7 @@
     { "binding": "STORAGE", "bucket_name": "event-scheduler-local" }
   ],
   "images": { "binding": "IMAGES" },
+  "send_email": [{ "name": "MAILER" }],
   "triggers": { "crons": ["*/5 * * * *"] },
   "observability": { "enabled": true }
 }

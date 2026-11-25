@@ -4,7 +4,11 @@
 
 ## 利用方法
 
-### 基本的な流れ
+### スタッフ登録とログイン
+
+管理者が `/accounts` にメールアドレスを登録したら、スタッフ本人が `/register` で同じメールアドレスを入力します。届いたリンクを確認し、Google または LINE を連携すると登録完了です。次回以降は `/login` から連携したアカウントでログインします。管理者はスタッフや他の管理者を追加できます。
+
+### 管理者の基本的な流れ
 
 1. **部屋を登録** — 会場の部屋名・収容人数を設定
 2. **セッションを登録** — セッショングループ（日程）ごとに、タイトル・時間・部屋を設定。LT・パネルディスカッションは複数登壇者に対応
@@ -27,7 +31,7 @@
 | エクスポート | Excel出力、connpassタイムライン・登壇者テンプレート生成 |
 | 公開API | スケジュールJSONの外部配信、Webhook・GitHub Actions連携 |
 | バックアップ | 自動バックアップ（間隔/毎日）、手動バックアップ、リストア、履歴管理 |
-| 設定 | アプリタイトル、カテゴリ管理、セッショングループ管理、パスワード変更、データ初期化 |
+| 設定 | アプリタイトル、カテゴリ管理、セッショングループ管理、データ初期化 |
 
 ### セッション形式
 
@@ -70,10 +74,11 @@ Node.js 24 と npm を使います。ローカル環境は Wrangler の D1 と R
 ```sh
 make install
 cp web/.dev.vars.example web/.dev.vars
-make dev
+# 初回は自分の開発用メールアドレスを指定する
+INITIAL_ADMIN_EMAIL=admin@example.test make dev
 ```
 
-`web/.dev.vars` の `SESSION_SECRET`、`APP_PASSWORD`、`RESET_PASSWORD` をそれぞれ別のローカル専用の値に変更します。`http://localhost:3000` から `APP_PASSWORD` でログインすると、空の D1 に初期データが作成されます。データ初期化時の確認には `RESET_PASSWORD` を使用します。
+利用するプロバイダーの開発用設定を `web/.dev.vars` に記入します。初回の `make dev` が指定メールを管理者として D1 の名簿に追加します。ブラウザで `http://localhost:3000/register` を開き、そのアドレスで初回登録してください。次回以降は `make dev` のみで起動できます。`APP_ORIGIN` にはブラウザで実際に開く URL を設定します。Firebase をローカルで試す場合は `localhost` を承認済みドメインに加えてください。Wrangler のローカルメール送信はシミュレーションで、登録用メールをローカルで確認できます。[メール・Google・LINE の設定](.github/workflows/README.md#スタッフ個別ログインの準備)・[Wrangler のローカルメール確認](https://developers.cloudflare.com/email-service/observability/local-development/sending/)
 
 | コマンド | 用途 |
 |---|---|

@@ -1,6 +1,6 @@
 ENV ?= staging
 .DEFAULT_GOAL := help
-.PHONY: help install dev build test preview deploy
+.PHONY: help install dev build test preview deploy init-local
 
 help:
 	@echo "make install | dev | build | test | preview | deploy ENV=staging"
@@ -8,8 +8,11 @@ help:
 install:
 	cd web && npm ci
 
-dev:
+init-local:
 	cd web && npx --no-install wrangler d1 migrations apply DB --local
+	cd web && node scripts/seed-admin.mjs --local
+
+dev: init-local
 	cd web && npm run dev
 
 build:
@@ -18,8 +21,7 @@ build:
 test:
 	cd web && npm run typecheck && npm test
 
-preview: build
-	cd web && npx --no-install wrangler d1 migrations apply DB --local
+preview: build init-local
 	cd web && npm run preview
 
 deploy:

@@ -1,79 +1,20 @@
-import test, { type TestContext } from "node:test";
-import { hash } from "../lib/auth";
+import test from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { getPlatformProxy } from "wrangler";
 import { handle } from "../lib/api";
-import { write, snapshot, type Bindings } from "../lib/db";
+import { write, snapshot } from "../lib/db";
+import { scheduler, request, loginFixture } from "./scheduler-fixture";
+import { seedLocalAdmin } from "../scripts/seed-admin.mjs";
 import { backup, restore } from "../lib/backup";
 import { zipSync, strToU8 } from "fflate";
 
-async function freshDatabase(t: TestContext) {
-  const platform = await getPlatformProxy<Bindings>({
-    configPath: "wrangler.json",
-    persist: false,
-    remoteBindings: false,
-  });
-  t.after(() => platform.dispose());
-  const env = { ...platform.env };
-  env.SESSION_SECRET = "local-test-secret";
-  env.APP_PASSWORD = "test-login";
-  env.RESET_PASSWORD = "test-admin";
-  for (const f of readdirSync("migrations").sort()) {
-    const statements = readFileSync("migrations/" + f, "utf8")
-      .replace(/^\s*--.*$/gm, "")
-      .split(";")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
-  }
-  return env;
-}
-
 test("authenticated D1 lifecycle, scheduling boundaries, atomic restore and private snapshots", async (t) => {
-  const env = await freshDatabase(t);
-  let cookie = "";
-  async function call(path: string, method = "GET", body?: unknown) {
-    return handle(
-      new Request("https://scheduler.test/" + path, {
-        method,
-        headers: { cookie, "Content-Type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      }),
-      env,
-      path.split("/"),
-    );
-  }
-  assert.equal((await call("api/workspace")).status, 401);
-  assert.equal((await call("auth/setup", "POST", {})).status, 404);
-  const credentials = { password: env.APP_PASSWORD };
-  const reset = env.RESET_PASSWORD;
-  delete env.RESET_PASSWORD;
-  assert.equal((await call("auth/verify", "POST", credentials)).status, 503);
-  env.RESET_PASSWORD = reset;
-  assert.equal(
-    (await call("auth/verify", "POST", { password: "wrong" })).status,
-    401,
-  );
-  assert.equal((await snapshot(env.DB)).rows.rooms.length, 0);
-  assert.equal((await snapshot(env.DB)).rows.app_settings.length, 0);
-  const [login, retry] = await Promise.all([
-    call("auth/verify", "POST", credentials),
-    call("auth/verify", "POST", credentials),
-  ]);
-  assert.equal(login.status, 200);
-  assert.equal(retry.status, 200);
-  const initial = (await snapshot(env.DB)).rows;
-  assert.deepEqual(
-    initial.rooms.map((row) => row.name),
-    ["全体"],
-  );
-  assert.equal(initial.session_groups.length, 1);
-  assert.deepEqual(initial.categories.map((row) => row.key).sort(), [
-    "reception",
-    "social",
-  ]);
-  cookie = login.headers.get("set-cookie")!.split(";")[0];
+  const env = await scheduler(t);
+  const email = "admin@example.test";
+  assert.equal((await request(env, "api/workspace")).status, 401);
+  await seedLocalAdmin(env.DB, email);
+  const cookie = await loginFixture(env.DB, email);
+  const call = (path: string, method = "GET", body?: unknown) =>
+    request(env, path, method, body, cookie);
   const room = (await (
     await call("api/rooms", "POST", { name: "Hall", capacity: 100 })
   ).json()) as { id: number };
@@ -202,55 +143,5 @@ test("authenticated D1 lifecycle, scheduling boundaries, atomic restore and priv
   assert.doesNotMatch(
     await published.text(),
     /emergency_contact|login_password/,
-  );
-});
-
-test("imported settings and rows survive the first login", async (t) => {
-  const env = await freshDatabase(t);
-  const verify = (password: string) =>
-    handle(
-      new Request("https://scheduler.test/auth/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      }),
-      env,
-      ["auth", "verify"],
-    );
-  await env.DB.prepare(
-    "INSERT INTO rooms(id,name,capacity) VALUES(42,'Existing',50)",
-  ).run();
-  assert.equal((await verify(env.APP_PASSWORD!)).status, 200);
-  let rows = (await snapshot(env.DB)).rows;
-  assert.deepEqual(
-    rows.rooms.map((r) => r.id),
-    [42],
-  );
-  assert.equal(rows.categories.length, 0);
-  assert.equal(rows.app_settings.length, 0);
-  const stored = hash("legacy-login");
-  await env.DB.batch([
-    env.DB.prepare(
-      "INSERT INTO app_settings(key,value) VALUES('setup_completed','1')",
-    ),
-    env.DB.prepare(
-      "INSERT INTO app_settings(key,value) VALUES('login_password',?)",
-    ).bind(stored),
-    env.DB.prepare(
-      "INSERT INTO app_settings(key,value) VALUES('reset_password',?)",
-    ).bind(hash("legacy-reset")),
-  ]);
-  assert.equal((await verify("legacy-login")).status, 401);
-  delete (env as Bindings).APP_PASSWORD;
-  delete (env as Bindings).RESET_PASSWORD;
-  assert.equal((await verify("legacy-login")).status, 200);
-  rows = (await snapshot(env.DB)).rows;
-  assert.equal(
-    rows.app_settings.find((r) => r.key === "login_password")?.value,
-    stored,
-  );
-  assert.deepEqual(
-    rows.rooms.map((r) => r.id),
-    [42],
   );
 });

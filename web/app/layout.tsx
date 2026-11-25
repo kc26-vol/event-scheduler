@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import "./style.css";
+import SessionChanges from "@/components/SessionChanges";
 export const metadata = {
   title: "Event Scheduler",
   manifest: "/manifest.webmanifest",
@@ -13,7 +14,10 @@ export const viewport = {
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html lang="ja">
-      <body>{children}</body>
+      <body>
+        <SessionChanges />
+        {children}
+      </body>
     </html>
   );
 }

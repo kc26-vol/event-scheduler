@@ -13,10 +13,22 @@ export interface Bindings {
   DB: D1Database;
   STORAGE: R2Bucket;
   IMAGES?: ImagesBinding;
-  SESSION_SECRET: string;
-  APP_PASSWORD?: string;
-  RESET_PASSWORD?: string;
   GEOIP_ENABLED?: string;
+  APP_ORIGIN?: string;
+  AUTH_EMAIL_FROM?: string;
+  MAILER?: {
+    send(message: {
+      from: string;
+      to: string;
+      subject: string;
+      text: string;
+    }): Promise<unknown>;
+  };
+  FIREBASE_PROJECT_ID?: string;
+  FIREBASE_AUTH_DOMAIN?: string;
+  FIREBASE_API_KEY?: string;
+  LINE_CHANNEL_ID?: string;
+  LINE_CHANNEL_SECRET?: string;
 }
 
 export class HttpError extends Error {
