@@ -1,2 +1,3 @@
 SESSION_SECRET=replace-with-a-random-local-secret
-SETUP_TOKEN=replace-with-a-local-setup-token
+APP_PASSWORD=replace-with-a-local-login-password
+RESET_PASSWORD=replace-with-a-separate-local-admin-password
