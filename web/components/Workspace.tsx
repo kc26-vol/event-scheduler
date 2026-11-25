@@ -13,6 +13,7 @@ import {
 } from "./client";
 import { Dialog } from "./Dialog";
 import Manager from "./Manager";
+import { MyShiftPreferences } from "./ShiftPreferences";
 import Operations from "./Operations";
 import { participantPage } from "@/lib/visibility";
 import DevelopmentViewSwitch from "./DevelopmentViewSwitch";
@@ -241,9 +242,13 @@ export default function Workspace({
           <>
             {path === "/" && staffId === null && (
               <p>
-                自分の担当を表示するには、管理者にスタッフ情報との紐付けを依頼してください。
+                自分の担当の確認やシフト希望の入力には、管理者にスタッフ情報との紐付けを依頼してください。
               </p>
             )}
+            {path === "/" && !offlineShell && staffId !== null && (
+              <MyShiftPreferences sessions={data.sessions} online={online} />
+            )}
+            {path === "/" && <h2>自分の担当</h2>}
             {path === "/staff-detail" && (
               <label>
                 表示するスタッフ
