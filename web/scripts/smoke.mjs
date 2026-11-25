@@ -18,6 +18,7 @@ await once(probe, "listening");
 const { port } = probe.address();
 await new Promise((resolve) => probe.close(resolve));
 const url = "http://127.0.0.1:" + port;
+const alias = "http://localhost:" + port;
 // Provision browser/API sessions directly in this isolated database. Provider
 // redirects and email redemption are exercised in the account integration tests.
 async function fixtureLogin(email) {
@@ -115,7 +116,33 @@ try {
   const home = await call("/");
   assert.ok([302, 307].includes(home.status));
   assert.equal(new URL(home.headers.get("location"), url).pathname, "/login");
-  const signIn = await call("/login");
+  for (const path of [
+    "/login?next=https://other.example",
+    "/register",
+    "/link-account/",
+  ]) {
+    const redirect = await fetch(alias + path, { redirect: "manual" });
+    assert.equal(redirect.status, 307);
+    assert.equal(redirect.headers.get("location"), url + path);
+    assert.equal(redirect.headers.has("set-cookie"), false);
+  }
+  const aliasHealth = await fetch(alias + "/api/health", {
+    redirect: "manual",
+  });
+  assert.equal(aliasHealth.status, 200);
+  const signIn = await fetch(alias + "/");
+  assert.equal(signIn.url, url + "/login");
+  const start = await fetch(new URL("/auth/line-start", signIn.url), {
+    method: "POST",
+    headers: { Origin: url },
+  });
+  assert.equal(start.status, 200);
+  assert.match(start.headers.get("set-cookie") ?? "", /(?:^|, )es_line=/);
+  const authorization = new URL((await start.json()).url);
+  assert.equal(
+    authorization.searchParams.get("redirect_uri"),
+    url + "/auth/line-callback",
+  );
   assert.equal(signIn.status, 200);
   const html = await signIn.text();
   assert.match(html, /LINE でログイン/);
@@ -203,6 +230,14 @@ try {
     try {
       const context = await browser.newContext(),
         page = await context.newPage();
+      await page.goto(alias + "/");
+      assert.equal(page.url(), url + "/login");
+      await page.getByRole("button", { name: "LINE でログイン" }).waitFor();
+      await page.goto(alias + "/register#token=" + "a".repeat(64));
+      await page
+        .getByRole("button", { name: "確認して登録を続ける" })
+        .waitFor();
+      assert.equal(page.url(), url + "/register");
       await page.goto(url + "/register");
       await page.locator('input[type="email"]').waitFor();
       const scope = {
