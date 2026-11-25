@@ -86,16 +86,35 @@ self.addEventListener("fetch", (event) => {
         const found = await cache.match(req);
         if (found) return found;
       }
+      async function offline() {
+        let found = await cache.match(req);
+        if (page) {
+          found ||= await cache.match("/", { ignoreVary: true });
+          if (found) {
+            // Give a fallback document the current navigation URL, not its cached URL.
+            const headers = new Headers(found.headers);
+            headers.delete("content-encoding");
+            headers.delete("content-length");
+            return new Response(found.body, { status: found.status, headers });
+          }
+        }
+        return found;
+      }
+      if (!self.navigator.onLine) {
+        const saved = await offline();
+        if (saved) return saved;
+      }
       try {
         const response = await fetch(req);
         if (denied(response)) await caches.delete(CACHE);
+        else if (response.type === "error" || response.status >= 500)
+          return (await offline()) || response;
         else if (response.ok && !response.redirected)
           await cache.put(req, response.clone());
         return response;
       } catch (err) {
-        const found =
-          (await cache.match(req)) || (page && (await cache.match("/")));
-        if (found) return found;
+        const saved = await offline();
+        if (saved) return saved;
         throw err;
       }
     })(),

@@ -1,7 +1,7 @@
 # インフラ (Terraform)
 
 Azure 上のリソースを Terraform で管理します。アプリのコード自体は
-`make deploy` (zip デプロイ) で配信するため、ここではインフラの形だけを扱います。
+`make -f infra/Makefile.azure deploy` (zip デプロイ) で配信するため、ここではインフラの形だけを扱います。
 
 ## 構成
 
@@ -38,8 +38,8 @@ staging には本番の認証情報を流用せず、専用の値を生成して
 | 対象 | 管理者 | 理由 |
 |---|---|---|
 | RG・App Service プラン・Web App の設定 | **Terraform** | インフラの形 |
-| アプリ設定 (`APP_PASSWORD` 等) の値 | **`make sync-settings`** | 下記の理由により Terraform では `ignore_changes` |
-| アプリのコード | **`make deploy`** | zip デプロイ |
+| アプリ設定 (`APP_PASSWORD` 等) の値 | **`make -f infra/Makefile.azure sync-settings`** | 下記の理由により Terraform では `ignore_changes` |
+| アプリのコード | **`make -f infra/Makefile.azure deploy`** | zip デプロイ |
 
 `modules/webapp` では `app_settings` を `ignore_changes` に入れています。
 シークレットが `sensitive` 変数由来のため、**値が完全に同一でも** import した
