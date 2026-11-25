@@ -1,0 +1,45 @@
+name: Workers checks
+on:
+  pull_request:
+  workflow_call:
+    inputs:
+      package:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build:worker
+      - run: npm test
+      - name: Exercise the built Worker and offline UI
+        run: |
+          export CHROME_BIN
+          CHROME_BIN="$(command -v google-chrome)"
+          node scripts/smoke.mjs
+      - if: inputs.package
+        run: tar -czf "$RUNNER_TEMP/worker-bundle.tgz" .open-next
+      - if: inputs.package
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-bundle
+          path: ${{ runner.temp }}/worker-bundle.tgz
+          retention-days: 1
