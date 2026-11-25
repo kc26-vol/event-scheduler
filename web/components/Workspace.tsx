@@ -14,6 +14,7 @@ import {
 import { Dialog } from "./Dialog";
 import Manager from "./Manager";
 import Operations from "./Operations";
+import { participantPage } from "@/lib/visibility";
 
 const links = [
   ["/", "マイページ"],
@@ -33,14 +34,21 @@ const links = [
   ["/backup", "自動バックアップ"],
   ["/public-api", "公開 API"],
   ["/settings", "設定"],
+  ["/accounts", "アカウント管理"],
   ["/help", "ヘルプ"],
 ];
 export default function Workspace({
   path: initialPath,
   title,
+  admin,
+  staffId,
+  offlineShell,
 }: {
   path: string;
   title: string;
+  admin: boolean;
+  staffId: number | null;
+  offlineShell: boolean;
 }) {
   const [path, setPath] = useState(initialPath),
     [viewer, setViewer] = useState(0);
@@ -49,24 +57,22 @@ export default function Workspace({
     [notice, setNotice] = useState(""),
     [err, setErr] = useState(""),
     [menu, setMenu] = useState(false),
-    [me, setMe] = useState(0),
     [date, setDate] = useState(""),
     [search, setSearch] = useState(""),
     [detail, setDetail] = useState<Session | null>(null),
     [online, setOnline] = useState(true);
   const load = useCallback(async () => {
-    const next = await api<Schedule>("/api/workspace");
+    const next = await api<Schedule>(
+      offlineShell ? "/api/offline" : "/api/workspace",
+    );
     setData(next);
     setReady(true);
-  }, []);
+  }, [offlineShell]);
   useEffect(() => {
     setPath(window.location.pathname);
-    setMe(Number(localStorage.getItem("es.myStaffId") || 0));
     load().catch((e) => setErr(e.message));
     if ("serviceWorker" in navigator)
-      navigator.serviceWorker
-        .register("/sw.js")
-        .then(() => navigator.serviceWorker.ready)
+      navigator.serviceWorker.ready
         .then((reg) => reg.active?.postMessage("save-schedule"))
         .catch(() => {});
     let running = true;
@@ -121,7 +127,7 @@ export default function Workspace({
           ? id
           : path === "/staff-detail"
             ? viewer
-            : me),
+            : staffId),
     );
   const titleOf =
     links.find(([p]) => p === path)?.[1] ??
@@ -168,14 +174,6 @@ export default function Workspace({
     "/algorithm",
     "/help",
   ].includes(path);
-  function pick(value: string) {
-    if (path !== "/") {
-      setViewer(Number(value));
-      return;
-    }
-    setMe(Number(value));
-    localStorage.setItem("es.myStaffId", value);
-  }
   return (
     <div className="shell">
       <header>
@@ -193,16 +191,18 @@ export default function Workspace({
       </header>
       <aside className={menu ? "open" : ""}>
         <nav>
-          {links.map(([p, label]) => (
-            <a
-              key={p}
-              aria-current={path === p ? "page" : undefined}
-              href={p}
-              onClick={() => setMenu(false)}
-            >
-              {label}
-            </a>
-          ))}
+          {links
+            .filter(([p]) => admin || participantPage(p))
+            .map(([p, label]) => (
+              <a
+                key={p}
+                aria-current={path === p ? "page" : undefined}
+                href={p}
+                onClick={() => setMenu(false)}
+              >
+                {label}
+              </a>
+            ))}
           <a href="/auth/logout">ログアウト</a>
         </nav>
       </aside>
@@ -220,7 +220,7 @@ export default function Workspace({
         ) : management ? (
           <Manager path={path} data={data} task={task} />
         ) : ops ? (
-          <Operations path={path} data={data} task={task} />
+          <Operations path={path} data={data} task={task} admin={admin} />
         ) : path === "/venue" ? (
           <section>
             {data.maps.map((m) => (
@@ -233,12 +233,17 @@ export default function Workspace({
           </section>
         ) : (
           <>
-            {personal && bits[0] !== "staffs" && (
+            {path === "/" && staffId === null && (
+              <p>
+                自分の担当を表示するには、管理者にスタッフ情報との紐付けを依頼してください。
+              </p>
+            )}
+            {path === "/staff-detail" && (
               <label>
                 表示するスタッフ
                 <select
                   value={viewing?.id ?? ""}
-                  onChange={(e) => pick(e.target.value)}
+                  onChange={(e) => setViewer(Number(e.target.value))}
                 >
                   <option value="">選択してください</option>
                   {data.staffs.map((st) => (
@@ -271,6 +276,7 @@ export default function Workspace({
             </div>
             {bits[2] === "assign" || path === "/overall/assign" ? (
               <Operations
+                admin={admin}
                 path="/algorithm"
                 data={{ ...data, sessions: scoped }}
                 task={task}

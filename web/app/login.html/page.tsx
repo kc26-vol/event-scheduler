@@ -1,10 +1,11 @@
-import Login from "@/components/Login";
-import { bindings } from "@/lib/runtime";
-import { setting } from "@/lib/auth";
+import AccountProviderPage from "@/components/AccountProviderPage";
 export const dynamic = "force-dynamic";
-export default async function Page() {
-  const db = bindings().DB;
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   return (
-    <Login title={(await setting(db, "app_title")) || "Event Scheduler"} />
+    <AccountProviderPage failed={(await searchParams).error === "provider"} />
   );
 }

@@ -3,7 +3,7 @@ import { useState, useEffect, type FormEvent } from "react";
 import { api, shortTime, type Task } from "./client";
 import type { Schedule } from "@/lib/db";
 
-type Props = { path: string; data: Schedule; task: Task };
+type Props = { path: string; data: Schedule; task: Task; admin: boolean };
 const form = (e: FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   return Object.fromEntries(new FormData(e.currentTarget));
@@ -221,31 +221,6 @@ export default function Operations(props: Props) {
             ))}
             <button>設定を保存</button>
           </form>
-          {["ログイン", "管理者"].map((label, i) => (
-            <form
-              key={label}
-              onSubmit={onForm((b) =>
-                api(
-                  i
-                    ? "/api/export/reset-password"
-                    : "/api/settings/change-password",
-                  "POST",
-                  b,
-                ),
-              )}
-            >
-              <h2>{label}パスワード変更</h2>
-              <label>
-                現在のパスワード
-                <input type="password" name="current_password" required />
-              </label>
-              <label>
-                新しいパスワード
-                <input type="password" name="new_password" required />
-              </label>
-              <button>変更</button>
-            </form>
-          ))}
         </>
       )}
       {path === "/export" && (
@@ -336,8 +311,13 @@ export default function Operations(props: Props) {
             })}
           >
             <label>
-              管理者パスワード
-              <input required name="password" type="password" />
+              確認のため RESET と入力
+              <input
+                required
+                name="confirmation"
+                autoComplete="off"
+                pattern="RESET"
+              />
             </label>
             <button className="danger">初期化</button>
           </form>
@@ -517,18 +497,22 @@ export default function Operations(props: Props) {
         <>
           <h2>当日の担当を確認する</h2>
           <p>
-            マイページで自分の名前を選ぶと、担当する時間・部屋・セッションが表示されます。全体スケジュールから部屋名を選ぶとその部屋の担当表が開きます。
+            マイページには自分の担当する時間・部屋・セッションが表示されます。全体スケジュールから部屋名を選ぶとその部屋の担当表が開きます。
           </p>
-          <h2>スタッフを配置する</h2>
-          <p>
-            部屋、セッション、スタッフを登録し、スタッフのロール・希望・活動時間を設定します。自動配置では対象日を選んで実行します。時間の重複・移動時間・1日の最大稼働時間を確認しながら、担当の希望と負担を考慮します。
-          </p>
-          <h2>公開とバックアップ</h2>
-          <p>
-            公開 API
-            からスケジュールを公開すると、その時点のスナップショットを外部サイトから取得できます。入出力から
-            Excel 出力やバックアップの復元ができます。
-          </p>
+          {props.admin && (
+            <>
+              <h2>スタッフを配置する</h2>
+              <p>
+                部屋、セッション、スタッフを登録し、スタッフのロール・希望・活動時間を設定します。自動配置では対象日を選んで実行します。時間の重複・移動時間・1日の最大稼働時間を確認しながら、担当の希望と負担を考慮します。
+              </p>
+              <h2>公開とバックアップ</h2>
+              <p>
+                公開 API
+                からスケジュールを公開すると、その時点のスナップショットを外部サイトから取得できます。入出力から
+                Excel 出力やバックアップの復元ができます。
+              </p>
+            </>
+          )}
         </>
       )}
       {result && (
