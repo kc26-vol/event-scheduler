@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "./client";
+import DevelopmentViewSwitch from "./DevelopmentViewSwitch";
 
 type Member = {
   id: number;
@@ -15,9 +16,11 @@ type Staff = { id: number; name: string };
 export default function AccountDirectory({
   self,
   staff,
+  canSwitchView,
 }: {
   self: number;
   staff: Staff[];
+  canSwitchView: boolean;
 }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
@@ -83,6 +86,7 @@ export default function AccountDirectory({
 
   return (
     <main>
+      {canSwitchView && <DevelopmentViewSwitch admin />}
       <div className="pageheading">
         <h1>アカウント管理</h1>
         <a href="/">担当表に戻る</a>

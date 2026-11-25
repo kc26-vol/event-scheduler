@@ -102,7 +102,10 @@ export async function prepare(
     );
   const workersUrl =
     "https://" + name + "." + domain.subdomain + ".workers.dev";
-  if (auth) Object.assign(config, authBindings(auth, workersUrl));
+  if (auth) {
+    Object.assign(config, authBindings(auth, workersUrl));
+    if (target === "staging") config.vars.DEVELOPMENT_ROLE_SWITCH = "1";
+  }
   const databases = await api("/d1/database?name=" + name);
   const db =
     databases.find((db) => db.name === name) ||

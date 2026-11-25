@@ -74,8 +74,23 @@ async function session(
     .bind(digest(raw), purpose, now())
     .first<Account>();
 }
-export const currentAccount = (req: Request, env: Bindings) =>
-  session(req, env, "login");
+export const staffViewCookie = "es_staff_view";
+export const staffViewMarker = (req: Request) =>
+  digest("staff-view:" + cookie(req, "es_session"));
+
+export async function currentAccount(req: Request, env: Bindings) {
+  const account = await session(req, env, "login");
+  if (!account) return null;
+  const canSwitchView =
+    env.DEVELOPMENT_ROLE_SWITCH === "1" && account.role === "admin";
+  const staffView =
+    canSwitchView && cookie(req, staffViewCookie) === staffViewMarker(req);
+  return {
+    ...account,
+    role: staffView ? ("staff" as const) : account.role,
+    canSwitchView,
+  };
+}
 export const currentEnrollment = (req: Request, env: Bindings) =>
   session(req, env, "enroll");
 

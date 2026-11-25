@@ -15,6 +15,7 @@ import { Dialog } from "./Dialog";
 import Manager from "./Manager";
 import Operations from "./Operations";
 import { participantPage } from "@/lib/visibility";
+import DevelopmentViewSwitch from "./DevelopmentViewSwitch";
 
 const links = [
   ["/", "マイページ"],
@@ -43,12 +44,14 @@ export default function Workspace({
   admin,
   staffId,
   offlineShell,
+  canSwitchView,
 }: {
   path: string;
   title: string;
   admin: boolean;
   staffId: number | null;
   offlineShell: boolean;
+  canSwitchView: boolean;
 }) {
   const [path, setPath] = useState(initialPath),
     [viewer, setViewer] = useState(0);
@@ -207,6 +210,9 @@ export default function Workspace({
         </nav>
       </aside>
       <main>
+        {canSwitchView && !offlineShell && (
+          <DevelopmentViewSwitch admin={admin} />
+        )}
         <div className="pageheading">
           <h1>{titleOf}</h1>
           <button className="light" onClick={() => task(load, "更新しました")}>

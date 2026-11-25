@@ -1,5 +1,7 @@
 # Use the exact origin opened in the browser (Wrangler preview normally uses port 8787).
 APP_ORIGIN=http://localhost:3000
+# Let a signed-in admin preview the local staff experience.
+DEVELOPMENT_ROLE_SWITCH=1
 AUTH_EMAIL_FROM=scheduler@example.test
 # Enable Google, LINE, or both using your development provider configuration.
 FIREBASE_PROJECT_ID=

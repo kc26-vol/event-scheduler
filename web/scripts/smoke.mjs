@@ -87,6 +87,8 @@ try {
       "FIREBASE_PROJECT_ID:smoke",
       "--var",
       "FIREBASE_API_KEY:local-only",
+      "--var",
+      "DEVELOPMENT_ROLE_SWITCH:1",
     ],
     { stdio: "inherit" },
   );
@@ -246,6 +248,32 @@ try {
         secure: true,
         sameSite: "Lax",
       };
+      const adminContext = await browser.newContext();
+      const adminPage = await adminContext.newPage();
+      await adminContext.addCookies([
+        { ...scope, name: "es_session", value: admin.token, httpOnly: true },
+        { ...scope, name: "es_offline", value: admin.offline },
+      ]);
+      await adminPage.goto(url + "/accounts");
+      await adminPage
+        .getByRole("button", { name: "スタッフ表示に切り替える" })
+        .click();
+      await adminPage
+        .getByRole("button", { name: "管理者表示に切り替える" })
+        .waitFor();
+      assert.equal(adminPage.url(), url + "/");
+      assert.equal(await adminPage.locator('a[href="/accounts"]').count(), 0);
+      assert.equal(
+        (await adminContext.request.get(url + "/accounts")).status(),
+        404,
+      );
+      await adminPage.goto(url + "/schedule#timetable");
+      await adminPage
+        .getByRole("button", { name: "管理者表示に切り替える" })
+        .click();
+      await adminPage.getByRole("link", { name: "アカウント管理" }).waitFor();
+      assert.equal(adminPage.url(), url + "/schedule#timetable");
+      await adminContext.close();
       await context.addCookies([
         {
           ...scope,
