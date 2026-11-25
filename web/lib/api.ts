@@ -12,7 +12,14 @@ import {
 } from "./db";
 import { resources, readonlySettings, bodyOf } from "./resources";
 import { publishing } from "./publish";
-import { backup, binary, restore, createArchive, backupConfig } from "./backup";
+import {
+  backup,
+  binary,
+  restore,
+  createArchive,
+  backupConfig,
+  nextBackup,
+} from "./backup";
 
 export async function handle(req: Request, env: Bindings, path: string[]) {
   try {
@@ -178,7 +185,12 @@ export async function handle(req: Request, env: Bindings, path: string[]) {
             .prepare(
               "SELECT id,created_at,size_bytes,trigger,object_key FROM archives WHERE kind='backup' ORDER BY created_at DESC",
             )
-            .all<{ id: string; object_key: string; created_at: string }>()
+            .all<{
+              id: string;
+              object_key: string;
+              created_at: string;
+              trigger: string;
+            }>()
         ).results;
         if (route === "auto/history" && req.method === "GET")
           return Response.json(
@@ -193,9 +205,16 @@ export async function handle(req: Request, env: Bindings, path: string[]) {
             enabled: c.enabled,
             running: c.enabled,
             last_run: history[0]?.created_at ?? null,
-            last_status: history.length ? "ok" : null,
-            next_run: null,
-            error: null,
+            last_status: config.autobackup_error
+              ? "error"
+              : history.length
+                ? "ok"
+                : null,
+            next_run: nextBackup(
+              config,
+              history.find((h) => h.trigger === "auto")?.created_at,
+            ),
+            error: config.autobackup_error || null,
           });
         if (parts[1] === "history") {
           const h = history.find((h) => h.id === parts[2]);

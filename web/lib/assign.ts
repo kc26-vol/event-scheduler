@@ -8,7 +8,9 @@ type Options = {
   fill_only?: boolean;
 };
 const time = (date: string) =>
-  Date.parse(date.replace(" ", "T").replace(/Z$/, "") + "Z") / 60000;
+  Date.parse(
+    date.replace(" ", "T") + (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(date) ? "" : "Z"),
+  ) / 60000;
 const hours = (s: Session) => (time(s.end_time) - time(s.start_time)) / 60;
 const day = (s: Session) => s.start_time.slice(0, 10);
 export function conflicts(a: Session, b: Session, travel: number) {
@@ -154,6 +156,8 @@ export function plan(
         (a, b) =>
           rank(b) - rank(a) ||
           shifts.get(a.id)!.length - shifts.get(b.id)!.length ||
+          shifts.get(a.id)!.reduce((n, v) => n + hours(v), 0) -
+            shifts.get(b.id)!.reduce((n, v) => n + hours(v), 0) ||
           a.id - b.id,
       );
       const pick = available[0];
@@ -162,7 +166,7 @@ export function plan(
       added.push({
         session_id: s.id,
         staff_id: pick.id,
-        role: s.category || "support",
+        role: permittedRoles(data, s, config)[0],
       });
     }
     if (team.some(experienced)) for (const st of team) trained.add(st.id);

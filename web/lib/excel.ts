@@ -88,17 +88,24 @@ export async function excel(env: Bindings, data: Schedule) {
     ]);
     if (s.photo) await picture(staff, row.number, s.photo);
   }
-  const sections = [
-    { label: "全体スケジュール", sessions: data.sessions },
-    ...data.groups.map((g) => ({
-      label: g.label,
-      sessions: data.sessions.filter((s) => s.group_id === g.id),
-    })),
-    ...data.categories.map((c) => ({
-      label: c.label,
-      sessions: data.sessions.filter((s) => s.category === c.key),
-    })),
+  const dates = [
+    ...new Set(data.sessions.map((s) => s.start_time.slice(0, 10))),
   ];
+  if (!dates.length) dates.push("");
+  const days = dates.map((date) => ({
+    suffix: dates.length > 1 ? " " + date.slice(5) : "",
+    sessions: data.sessions.filter((s) => s.start_time.startsWith(date)),
+  }));
+  const sections = days.map((d) => ({
+    label: "セッション管理" + d.suffix,
+    sessions: d.sessions,
+  }));
+  for (const c of data.categories)
+    for (const d of days) {
+      const sessions = d.sessions.filter((s) => s.category === c.key);
+      if (sessions.length)
+        sections.push({ label: c.label + d.suffix, sessions });
+    }
   for (const group of sections) {
     const ws = sheet(group.label, [
       "写真",
@@ -138,6 +145,69 @@ export async function excel(env: Bindings, data: Schedule) {
         ]);
         if (t.speaker_photo) await picture(ws, talk.number, t.speaker_photo);
       }
+    }
+  }
+  const people = new Map(data.staffs.map((st) => [st.id, st.name]));
+  function team(id: number) {
+    return data.assignments
+      .filter((a) => a.session_id === id)
+      .map((a) => people.get(a.staff_id))
+      .join(" / ");
+  }
+  for (const d of days) {
+    const placement = sheet("セッション配置" + d.suffix, [
+      "開始",
+      "終了",
+      "部屋",
+      "セッション",
+      "必要人数",
+      "担当者",
+    ]);
+    for (const s of d.sessions)
+      placement.addRow([
+        s.start_time,
+        s.end_time,
+        s.room?.name,
+        s.title,
+        s.required_staff,
+        s.required_staff === -1 ? "全員" : team(s.id),
+      ]);
+    const rooms = data.rooms.filter((r) =>
+      d.sessions.some((s) => s.room_id === r.id),
+    );
+    const matrix = sheet("全体スケジュール" + d.suffix, [
+      "時刻",
+      ...rooms.map((r) => r.name),
+    ]);
+    if (!d.sessions.length) continue;
+    const start =
+      Math.floor(
+        Math.min(...d.sessions.map((s) => Date.parse(s.start_time))) / 300000,
+      ) * 300000;
+    const end = Math.max(...d.sessions.map((s) => Date.parse(s.end_time)));
+    for (
+      let stamp = start;
+      stamp < end && stamp < start + 86400000;
+      stamp += 300000
+    ) {
+      const values = rooms.map((room) =>
+        d.sessions
+          .filter(
+            (s) =>
+              s.room_id === room.id &&
+              Date.parse(s.start_time) < stamp + 300000 &&
+              Date.parse(s.end_time) > stamp,
+          )
+          .map(
+            (s) =>
+              s.title + "\n" + (s.required_staff === -1 ? "全員" : team(s.id)),
+          )
+          .join("\n"),
+      );
+      matrix.addRow([
+        new Date(stamp).toISOString().slice(11, 16),
+        ...values,
+      ]).alignment = { wrapText: true, vertical: "top" };
     }
   }
   return binary(

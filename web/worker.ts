@@ -2,13 +2,29 @@
 // @ts-ignore The bundle is generated after Next's type check.
 import nextWorker from "./.open-next/worker.js";
 import { createArchive } from "./lib/backup";
-import type { Bindings } from "./lib/db";
+import { putSetting, type Bindings } from "./lib/db";
 
 // @ts-ignore Generated module exports are resolved by Wrangler.
 export * from "./.open-next/worker.js";
 export default {
   fetch: nextWorker.fetch,
   async scheduled(event: ScheduledController, env: Bindings) {
-    await createArchive(env, "auto", new Date(event.scheduledTime));
+    try {
+      const entry = await createArchive(
+        env,
+        "auto",
+        new Date(event.scheduledTime),
+      );
+      if (entry) await putSetting(env.DB, "autobackup_error", "").run();
+    } catch (error) {
+      await putSetting(
+        env.DB,
+        "autobackup_error",
+        "バックアップに失敗しました (" +
+          new Date(event.scheduledTime).toISOString() +
+          ")",
+      ).run();
+      throw error;
+    }
   },
 };

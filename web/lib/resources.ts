@@ -308,6 +308,9 @@ export async function resources(req: Request, env: Bindings, path: string[]) {
     );
     await write(db, version, [
       db.prepare("DELETE FROM lt_talks WHERE session_id=?").bind(id),
+      update(db, "sessions", id, {
+        speaker: body.filter((t) => t.is_representative).at(-1)?.speaker ?? "",
+      }),
       ...body.map((t, i) =>
         insert(db, "lt_talks", {
           ...fields("lt_talks", t),
@@ -392,6 +395,17 @@ export async function resources(req: Request, env: Bindings, path: string[]) {
     "Method not allowed",
     405,
   );
+  if (sub) {
+    const allowed =
+      sub === "move"
+        ? ["start_time", "end_time", "room_id"]
+        : ["required_staff"];
+    check(
+      allowed.every((k) => body[k] != null) &&
+        Object.keys(body).every((k) => allowed.includes(k)),
+      "変更項目を確認してください",
+    );
+  }
   const mediaKey =
     table === "sessions"
       ? "speaker_photo"

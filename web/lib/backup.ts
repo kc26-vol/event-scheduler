@@ -234,14 +234,18 @@ export async function createArchive(
       return;
   }
   const bytes = await backup(env, rows),
-    key = "backups/" + filename(id),
+    key = "backups/" + filename(crypto.randomUUID()),
     created = instant.toISOString();
   await env.STORAGE.put(key, bytes);
-  await env.DB.prepare(
+  const saved = await env.DB.prepare(
     "INSERT OR IGNORE INTO archives(id,kind,created_at,object_key,size_bytes,trigger) VALUES (?,'backup',?,?,?,?)",
   )
     .bind(id, created, key, bytes.length, trigger)
     .run();
+  if (!saved.meta.changes) {
+    await env.STORAGE.delete(key);
+    return;
+  }
   const stale = await env.DB.prepare(
     "SELECT id,object_key FROM archives WHERE kind='backup' ORDER BY created_at DESC LIMIT -1 OFFSET ?",
   )
@@ -259,4 +263,53 @@ export async function createArchive(
     trigger,
     status: "ok",
   };
+}
+
+export function nextBackup(
+  config: Record<string, string>,
+  latest?: string,
+  now = new Date(),
+): string | null {
+  const c = backupConfig(config);
+  if (!c.enabled) return null;
+  if (c.schedule_type !== "daily")
+    return new Date(
+      Math.max(
+        now.getTime(),
+        latest
+          ? Date.parse(latest) + c.interval_minutes * 60000
+          : now.getTime(),
+      ),
+    ).toISOString();
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: config.timezone || "Asia/Tokyo",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  function local(d: Date) {
+    const p = Object.fromEntries(
+      fmt.formatToParts(d).map((p) => [p.type, p.value]),
+    );
+    return {
+      date: p.year + "-" + p.month + "-" + p.day,
+      time: p.hour + ":" + p.minute,
+    };
+  }
+  const today = local(now),
+    ranToday = latest && local(new Date(latest)).date === today.date;
+  if (today.time >= c.daily_time && !ranToday) return now.toISOString();
+  const target = new Date(today.date + "T" + c.daily_time + ":00Z");
+  if (ranToday) target.setUTCDate(target.getUTCDate() + 1);
+  let actual = target.getTime();
+  for (let i = 0; i < 3; i++) {
+    const p = local(new Date(actual)),
+      delta = target.getTime() - Date.parse(p.date + "T" + p.time + ":00Z");
+    if (!delta) break;
+    actual += delta;
+  }
+  return new Date(actual).toISOString();
 }

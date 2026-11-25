@@ -7,7 +7,7 @@ import {
   write,
   type Bindings,
 } from "./db";
-import { equal, setting } from "./auth";
+import { equal } from "./auth";
 
 export async function publishing(
   req: Request,
@@ -16,14 +16,16 @@ export async function publishing(
   publicRead = false,
 ) {
   const db = env.DB;
+  const current = publicRead ? undefined : await snapshot(db);
   const cfg = settings(
-    (
-      await db
-        .prepare(
-          "SELECT key,value FROM app_settings WHERE key LIKE 'public_api_%' OR key='app_title'",
-        )
-        .all<{ key: string; value: string }>()
-    ).results,
+    current?.rows.app_settings ??
+      (
+        await db
+          .prepare(
+            "SELECT key,value FROM app_settings WHERE key LIKE 'public_api_%' OR key='app_title'",
+          )
+          .all<{ key: string; value: string }>()
+      ).results,
   );
   const active = cfg.public_api_active_snapshot || "",
     key = cfg.public_api_key || "";
@@ -107,7 +109,7 @@ export async function publishing(
       },
     });
   }
-  const { rows, version } = await snapshot(db);
+  const { rows, version } = current!;
   const route = path.join("/");
   const show = (c: Record<string, string>) => ({
     enabled: c.public_api_enabled === "1",

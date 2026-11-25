@@ -104,7 +104,28 @@ test("authenticated D1 lifecycle, scheduling boundaries, atomic restore and priv
       1,
     );
   }
+  assert.equal(
+    (
+      await call("api/sessions/1/required-staff", "PATCH", {
+        required_staff: 1,
+        room_id: 42,
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await call("api/sessions/1/lt-talks", "PUT", [
+        { title: "Talk", speaker: "LT representative", is_representative: 1 },
+      ])
+    ).status,
+    200,
+  );
   const snap = await snapshot(env.DB);
+  assert.equal(
+    snap.rows.sessions.find((s) => s.id === 1)?.speaker,
+    "LT representative",
+  );
   assert.equal(snap.rows.assignments.length, 2);
   await write(env.DB, snap.version, []);
   await assert.rejects(

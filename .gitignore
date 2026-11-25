@@ -42,3 +42,4 @@ tfplan
 .next/
 *.tsbuildinfo
 *.d1.sql
+!web/app/uploads/
