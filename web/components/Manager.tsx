@@ -1,4 +1,5 @@
 "use client";
+import { StaffExclusions, AdminPreferenceEditor } from "./ShiftPreferences";
 import { Dialog } from "./Dialog";
 import { useState } from "react";
 
@@ -32,7 +33,7 @@ const forms: Record<string, Field[]> = {
   staffs: [
     ["name", "名前"],
     ["slack_name", "Slack 名"],
-    ["role", "担当ロール（カンマ区切り）"],
+    ["role", "配置可能な担当ロール（カンマ区切り）"],
     ["skills", "スキル（カンマ区切り）"],
     ["english_ok", "英語対応", "checkbox"],
     ["experience_count", "経験回数", "number"],
@@ -248,7 +249,9 @@ export default function Manager({
                   setEdit(null);
                 }}
               >
-                {resource === "staffs" ? "希望・活動時間" : "個別トーク"}
+                {resource === "staffs"
+                  ? "希望・活動時間・配置制限"
+                  : "個別トーク"}
               </button>
             )}
             {r.name !== "全体" && (
@@ -431,43 +434,13 @@ function StaffDetails({
         </label>
         <button>時間を追加</button>
       </form>
-      <h3>希望セッション</h3>
-      {st.preferred_sessions.map((p) => (
-        <p key={p.id}>
-          {p.priority} · {p.session?.title}{" "}
-          <button
-            className="light"
-            onClick={() =>
-              task(() => api(endpoint + "preferred-sessions/" + p.id, "DELETE"))
-            }
-          >
-            削除
-          </button>
-        </p>
-      ))}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const values = Object.fromEntries(new FormData(e.currentTarget));
-          task(() => api(endpoint + "preferred-sessions", "POST", values));
-        }}
-      >
-        <label>
-          セッション
-          <select name="session_id">
-            {data.sessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          優先順位
-          <input type="number" name="priority" min="1" defaultValue="1" />
-        </label>
-        <button>希望を追加</button>
-      </form>
+      <AdminPreferenceEditor
+        key={"preferences-" + id}
+        staff={st}
+        sessions={data.sessions}
+        task={task}
+      />
+      <StaffExclusions key={id} staffId={id} sessions={data.sessions} />
     </>
   );
 }

@@ -57,6 +57,7 @@ export const tables = [
   "lt_talks",
   "staff_skills_v2",
   "staff_preferred_sessions",
+  "staff_blocked_sessions",
   "staff_availabilities",
   "assignments",
   "app_settings",
@@ -191,6 +192,8 @@ export async function write(
     ]);
   } catch (e) {
     const reason = String(e) + " " + String((e as Error).cause);
+    if (reason.includes("assignment blocked by staff restriction"))
+      throw new HttpError(409, "スタッフの配置と配置制限が重複しています");
     if (/version >= 0/.test(reason))
       throw new HttpError(
         409,

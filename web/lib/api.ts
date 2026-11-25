@@ -13,6 +13,7 @@ import {
   type Bindings,
 } from "./db";
 import { resources, readonlySettings, bodyOf } from "./resources";
+import { preferenceRoute } from "./shift-preferences";
 import { publishing } from "./publish";
 import {
   backup,
@@ -112,6 +113,11 @@ async function dispatch(
     }
     check(prefix === "api", "Not found", 404);
     if (
+      !parts.length &&
+      (area === "shift-preferences" || area === "preference-window")
+    )
+      return await preferenceRoute(req, env, account, area);
+    if (
       (area === "workspace" || area === "offline") &&
       !route &&
       req.method === "GET"
@@ -149,7 +155,9 @@ async function dispatch(
             .filter((t) => t !== "app_settings")
             .reverse()
             .map((t) => db.prepare("DELETE FROM " + t)),
-          db.prepare("DELETE FROM app_settings WHERE key='app_title'"),
+          db.prepare(
+            "DELETE FROM app_settings WHERE key IN ('app_title','shift_preferences_open_at','shift_preferences_close_at')",
+          ),
         ]);
         return ok();
       }

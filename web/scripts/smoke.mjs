@@ -48,6 +48,130 @@ async function fixtureLogin(email) {
   assert.equal(seeded.status, 0);
   return { token, offline: hash("offline:" + token) };
 }
+
+async function verifyShiftPreferences(
+  adminPage,
+  staffPage,
+  staffId,
+  sessionId,
+) {
+  await adminPage.goto(url + "/settings");
+  await adminPage.getByLabel("受付開始（日本時間）").fill("2000-01-01T09:00");
+  await adminPage.getByLabel("受付終了（日本時間）").fill("2099-01-01T09:00");
+  const [windowResponse] = await Promise.all([
+    adminPage.waitForResponse(
+      (res) =>
+        res.url() === url + "/api/preference-window" &&
+        res.request().method() === "PUT",
+    ),
+    adminPage.getByRole("button", { name: "受付期間を保存" }).click(),
+  ]);
+  assert.ok(windowResponse.ok());
+  const savedWindow = await windowResponse.json();
+  assert.equal(savedWindow.opensAt, "2000-01-01T00:00:00.000Z");
+  assert.equal(savedWindow.closesAt, "2099-01-01T00:00:00.000Z");
+
+  // Staff must still be able to save and observe the server deadline on a fast device.
+  await staffPage.clock.setFixedTime(new Date("2100-01-01T00:00:00Z"));
+  await staffPage.goto(url + "/");
+  const preferences = staffPage.getByRole("region", { name: "シフト希望" });
+  await preferences.getByRole("checkbox", { name: /Opening/ }).check();
+  await preferences.getByRole("button", { name: "希望を保存" }).click();
+  await preferences
+    .getByText("希望を保存しました。", { exact: true })
+    .waitFor();
+  await staffPage.reload();
+  await preferences
+    .getByRole("checkbox", { name: /Opening/, checked: true })
+    .waitFor();
+
+  // Leave an earlier admin draft open while the deadline is changed elsewhere.
+  const adminWindow = adminPage.getByRole("region", {
+    name: "シフト希望の受付期間",
+  });
+  await adminWindow.getByLabel("受付開始（日本時間）").fill("1999-01-01T09:00");
+  // Use second precision to cross the actual Worker deadline with the form open.
+  const closesAt = new Date(Date.now() + 10000).toISOString();
+  const closeWindow = await adminPage.request.put(
+    url + "/api/preference-window",
+    {
+      headers: { Origin: url },
+      data: {
+        opensAt: savedWindow.opensAt,
+        closesAt,
+        previousOpensAt: savedWindow.opensAt,
+        previousClosesAt: savedWindow.closesAt,
+      },
+    },
+  );
+  assert.ok(closeWindow.ok());
+  await staffPage.reload();
+  await preferences
+    .getByRole("checkbox", { name: /Opening/, checked: true })
+    .uncheck();
+  await preferences
+    .getByText("受付を終了しました。", { exact: false })
+    .waitFor();
+  await preferences
+    .getByRole("listitem")
+    .filter({ hasText: "Opening" })
+    .waitFor();
+  await preferences
+    .getByRole("alert")
+    .filter({ hasText: "提出されていません" })
+    .waitFor();
+  assert.equal(
+    await preferences.getByRole("button", { name: "希望を保存" }).count(),
+    0,
+  );
+
+  const [staleWindow] = await Promise.all([
+    adminPage.waitForResponse(
+      (res) =>
+        res.url() === url + "/api/preference-window" &&
+        res.request().method() === "PUT",
+    ),
+    adminWindow.getByRole("button", { name: "受付期間を保存" }).click(),
+  ]);
+  assert.equal(staleWindow.status(), 409);
+  const discard = adminWindow.getByRole("button", {
+    name: "未保存の変更を破棄して最新の受付期間を表示",
+  });
+  await discard.click();
+  await discard.waitFor({ state: "hidden" });
+  assert.equal(
+    await adminWindow.getByLabel("受付開始（日本時間）").inputValue(),
+    "2000-01-01T09:00",
+  );
+  assert.equal(
+    await adminWindow.getByLabel("受付終了（日本時間）").inputValue(),
+    new Date(Date.parse(closesAt) + 9 * 3600_000).toISOString().slice(0, 16),
+  );
+  await staffPage.clock.setSystemTime(new Date());
+  await adminPage.goto(url + "/staffs");
+  const crew = adminPage.getByRole("article").filter({ hasText: "Crew" });
+  await crew.getByRole("button", { name: "希望・活動時間・配置制限" }).click();
+  const editor = adminPage.getByRole("dialog");
+  await editor.getByRole("heading", { name: "配置しないセッション" }).waitFor();
+  await editor.getByRole("checkbox", { name: /Opening/ }).check();
+  const endpoint = url + "/api/staffs/" + staffId + "/blocked-sessions";
+  const [restriction] = await Promise.all([
+    adminPage.waitForResponse(
+      (res) => res.url() === endpoint && res.request().method() === "PUT",
+    ),
+    editor.getByRole("button", { name: "配置制限を保存" }).click(),
+  ]);
+  assert.equal(restriction.status(), 204);
+  assert.deepEqual(
+    (await (await adminPage.request.get(endpoint)).json()).sessionIds,
+    [sessionId],
+  );
+  assert.equal((await staffPage.request.get(endpoint)).status(), 403);
+  console.log(
+    "Chrome verified preference entry, saved choices, the live deadline, and staff-specific exclusions.",
+  );
+}
+
 let worker;
 try {
   const migrated = spawnSync(
@@ -182,6 +306,7 @@ try {
     room_id: room.id,
   });
   assert.equal(entry.status, 201);
+  const session = await entry.json();
   const xlsx = await call("/api/export/excel");
   assert.equal(xlsx.status, 200);
   assert.ok(
@@ -273,7 +398,6 @@ try {
         .click();
       await adminPage.getByRole("link", { name: "アカウント管理" }).waitFor();
       assert.equal(adminPage.url(), url + "/schedule#timetable");
-      await adminContext.close();
       await context.addCookies([
         {
           ...scope,
@@ -290,6 +414,8 @@ try {
       assert.equal(await page.locator('a[href="/accounts"]').count(), 0);
       const guarded = await context.request.get(url + "/api/accounts");
       assert.equal(guarded.status(), 403);
+      await verifyShiftPreferences(adminPage, page, who.id, session.id);
+      await adminContext.close();
       await page
         .getByRole("link", { name: "全体スケジュール", exact: true })
         .click();

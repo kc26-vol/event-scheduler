@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { view, settings, tables, type Rows } from "../lib/db";
-import { plan } from "../lib/assign";
+import { overlapsAllHands, plan } from "../lib/assign";
 
 test(
   "day-by-day coverage and maximum hours on an existing event",
@@ -11,10 +11,17 @@ test(
   () => {
     const sql = new DatabaseSync("../scheduler.db", { readOnly: true });
     try {
+      const hasBlocks = sql
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='staff_blocked_sessions'",
+        )
+        .get();
       const rows = Object.fromEntries(
         tables.map((t) => [
           t,
-          sql.prepare("SELECT * FROM " + t + " ORDER BY rowid").all(),
+          t === "staff_blocked_sessions" && !hasBlocks
+            ? []
+            : sql.prepare("SELECT * FROM " + t + " ORDER BY rowid").all(),
         ]),
       ) as Rows;
       const data = view(rows),
@@ -23,7 +30,18 @@ test(
         data.sessions.map((s) => s.start_time.slice(0, 10)),
       )) {
         const result = plan(data, config, { target_date: day });
-        assert.equal(result.report.understaffed.length, 0);
+        const reserved = data.sessions.filter(
+          (s) =>
+            s.start_time.startsWith(day) &&
+            s.required_staff > 0 &&
+            s.category !== "overall" &&
+            overlapsAllHands(s, data.sessions),
+        );
+        assert.deepEqual(
+          result.report.understaffed.map((s) => s.session_id),
+          reserved.map((s) => s.id),
+        );
+        assert.ok(result.report.understaffed.every((s) => s.assigned === 0));
         data.assignments = data.assignments.filter(
           (a) => !result.remove.includes(a.session_id),
         );

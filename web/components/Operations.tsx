@@ -2,6 +2,8 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { api, shortTime, type Task } from "./client";
 import type { Schedule } from "@/lib/db";
+import type { plan } from "@/lib/assign";
+import { PreferenceWindowSettings } from "./ShiftPreferences";
 
 type Props = { path: string; data: Schedule; task: Task; admin: boolean };
 const form = (e: FormEvent<HTMLFormElement>) => {
@@ -11,7 +13,7 @@ const form = (e: FormEvent<HTMLFormElement>) => {
 const labels: Record<string, string> = {
   app_title: "イベント名",
   timezone: "タイムゾーン",
-  allow_overlap: "時間重複を許可（1/0）",
+  allow_overlap: "手動配置で個別シフト同士の時間重複を許可（1/0）",
   travel_buffer_minutes: "部屋間の移動時間（分）",
   session_categories: "セッション種別",
   custom_roles: "追加ロール",
@@ -72,27 +74,30 @@ export default function Operations(props: Props) {
       {path === "/algorithm" && (
         <>
           <h2>日程ごとの自動配置</h2>
+          <p>全員参加の時間には個別シフトを配置できません。</p>
           <form
             onSubmit={onForm(async (b) => {
               const ids = data.sessions
                 .filter((s) => s.start_time.startsWith(day))
                 .map((s) => s.id);
               if (!ids.length) throw Error("セッションがありません");
-              const r = await api("/api/assignments/auto-assign", "POST", {
-                target_date: day,
-                session_ids: ids,
-                fill_only: b.fill_only === "on",
-              });
+              const r = await api<ReturnType<typeof plan>["report"]>(
+                "/api/assignments/auto-assign",
+                "POST",
+                {
+                  target_date: day,
+                  session_ids: ids,
+                  fill_only: b.fill_only === "on",
+                },
+              );
               show(
-                "充足 " +
-                  r.fully_assigned +
-                  " / " +
-                  r.total_sessions +
-                  " セッション · 配置 " +
-                  r.assigned_slots +
-                  " / " +
-                  r.required_slots +
-                  " 人枠",
+                [
+                  `充足 ${r.fully_assigned} / ${r.total_sessions} セッション · 配置 ${r.assigned_slots} / ${r.required_slots} 人枠`,
+                  ...r.understaffed.map(
+                    (s) =>
+                      `${s.session_title}　あと${s.required - s.assigned}名`,
+                  ),
+                ].join("\n"),
               );
             })}
           >
@@ -200,6 +205,8 @@ export default function Operations(props: Props) {
       )}
       {path === "/settings" && (
         <>
+          {props.admin && <PreferenceWindowSettings />}
+          <h2>イベント設定</h2>
           <form
             key={JSON.stringify(config)}
             onSubmit={onForm((b) => api("/api/settings", "PUT", b))}

@@ -399,3 +399,32 @@ figure img {
     break-inside: avoid;
   }
 }
+
+.preference-panel {
+  padding: 1rem;
+  margin-block: 1rem;
+  border: 1px solid #d7e0d6;
+  border-radius: 8px;
+  background: white;
+}
+.preference-panel > :first-child {
+  margin-top: 0;
+}
+.session-choices {
+  max-height: 22rem;
+  overflow-y: auto;
+  margin-block: 0.65rem;
+}
+.session-choices label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.2rem;
+  border-bottom: 1px solid #d9e2d9;
+}
+.session-choices input {
+  flex: none;
+}
+.session-choices small {
+  display: block;
+}

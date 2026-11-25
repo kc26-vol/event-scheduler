@@ -11,7 +11,17 @@ import {
   type Table,
   type Schedule,
 } from "./db";
-import { plan, permittedRoles, conflicts } from "./assign";
+import {
+  plan,
+  permittedRoles,
+  conflicts,
+  travelMinutes,
+  overlapsAllHands,
+} from "./assign";
+import {
+  getPreferenceWindow,
+  preferenceWindowGuard,
+} from "./shift-preferences";
 import { participantRows } from "./visibility";
 import type { Session } from "./types";
 export const columns = {
@@ -27,6 +37,7 @@ export const columns = {
     "title speaker speaker_kana speaker_org speaker_title speaker_photo start_time end_time order is_representative",
   staff_skills_v2: "skill",
   staff_preferred_sessions: "session_id priority",
+  staff_blocked_sessions: "staff_id session_id",
   staff_availabilities: "start_time end_time",
   assignments: "session_id staff_id role",
   app_settings: "key value",
@@ -120,7 +131,7 @@ export async function upload(storage: R2Bucket, file: File) {
   });
   return "/" + key;
 }
-function durationRange(r: Row) {
+export function durationRange(r: Row) {
   check(
     typeof r.start_time === "string" &&
       typeof r.end_time === "string" &&
@@ -143,6 +154,15 @@ function summaries(data: Schedule) {
   }));
 }
 const noContent = () => new Response(null, { status: 204 });
+async function adminPreferenceGuard(db: D1Database) {
+  const { status } = await getPreferenceWindow(db);
+  check(
+    status === "unconfigured" || status === "open",
+    "希望の受付期間外です",
+    409,
+  );
+  return preferenceWindowGuard(db, true);
+}
 export async function resources(
   req: Request,
   env: Bindings,
@@ -220,7 +240,14 @@ export async function resources(
     part === "auto-assign" &&
     method === "POST"
   ) {
-    const result = plan(data, config, await bodyOf(req));
+    const blocked = new Map<number, Set<number>>();
+    for (const row of rows.staff_blocked_sessions) {
+      const staff = Number(row.staff_id);
+      const ids = blocked.get(staff) ?? new Set<number>();
+      ids.add(Number(row.session_id));
+      blocked.set(staff, ids);
+    }
+    const result = plan(data, config, await bodyOf(req), blocked);
     const changes = result.remove.map((id) =>
       db.prepare("DELETE FROM assignments WHERE session_id=?").bind(id),
     );
@@ -268,6 +295,63 @@ export async function resources(
   const id = Number(part);
   const record = part ? rows[table].find((r) => r.id === id) : undefined;
   if (part) check(record, "Not found", 404);
+  if (resource === "staffs" && sub === "blocked-sessions" && !last) {
+    check(staffId === undefined, "管理者権限が必要です", 403);
+    const current = rows.staff_blocked_sessions
+      .filter((row) => row.staff_id === id)
+      .map((row) => Number(row.session_id))
+      .sort((a, b) => a - b);
+    if (method === "GET") return json({ sessionIds: current });
+    check(method === "PUT", "Method not allowed", 405);
+    const body = await bodyOf(req);
+    const sessionIds: unknown = body?.sessionIds;
+    check(
+      Array.isArray(sessionIds) &&
+        sessionIds.every((v) => Number.isSafeInteger(v) && v > 0),
+      "セッションの選択を確認してください",
+    );
+    if (body.previousSessionIds !== undefined) {
+      const previous: unknown = body.previousSessionIds;
+      check(
+        Array.isArray(previous) &&
+          previous.every((v) => Number.isSafeInteger(v) && v > 0),
+        "変更前のセッションを確認してください",
+      );
+      const expected = new Set(previous);
+      check(
+        current.length === expected.size &&
+          current.every((v) => expected.has(v)),
+        "配置制限が更新されています。再読み込みしてから変更してください",
+        409,
+      );
+    }
+    const selected = new Set<number>(sessionIds);
+    const assignable = new Set(
+      data.sessions.filter((s) => s.required_staff > 0).map((s) => s.id),
+    );
+    check(
+      [...selected].every((v) => assignable.has(v)),
+      "個別に配置するセッションを選択してください",
+    );
+    check(
+      !data.assignments.some(
+        (a) => a.staff_id === id && selected.has(a.session_id),
+      ),
+      "選択したセッションに配置済みです。先にその配置を解除してください",
+      409,
+    );
+    await write(db, version, [
+      db
+        .prepare("DELETE FROM staff_blocked_sessions WHERE staff_id=?")
+        .bind(id),
+      db
+        .prepare(
+          "INSERT INTO staff_blocked_sessions(staff_id,session_id) SELECT ?, value FROM json_each(?)",
+        )
+        .bind(id, JSON.stringify([...selected])),
+    ]);
+    return noContent();
+  }
   if (!sub && method === "GET") {
     const items = all[resource] as { id: number; order?: number }[];
     if (["categories", "session-groups", "venue-maps"].includes(resource))
@@ -284,6 +368,10 @@ export async function resources(
       sub === "availabilities"
         ? "staff_availabilities"
         : "staff_preferred_sessions";
+    const guards =
+      child === "staff_preferred_sessions"
+        ? [await adminPreferenceGuard(db)]
+        : [];
     if (method === "DELETE" && last) {
       check(
         rows[child].some((r) => r.id === Number(last) && r.staff_id === id),
@@ -294,14 +382,24 @@ export async function resources(
         db
           .prepare("DELETE FROM " + child + " WHERE staff_id=? AND id=?")
           .bind(id, Number(last)),
+        ...guards,
       ]);
       return noContent();
     }
     check(method === "POST" && !last, "Method not allowed", 405);
     const values = fields(child, body);
     if (child === "staff_availabilities") durationRange(values);
+    if (child === "staff_preferred_sessions")
+      check(
+        !rows[child].some(
+          (p) => p.staff_id === id && p.session_id === values.session_id,
+        ),
+        "このセッションは希望に登録済みです",
+        409,
+      );
     const result = await write(db, version, [
       insert(db, child, { ...values, staff_id: id }),
+      ...guards,
     ]);
     return json({ ...values, id: result[1].meta.last_row_id }, 201);
   }
@@ -448,7 +546,51 @@ export async function resources(
     );
   if (table === "sessions") {
     durationRange(merged);
-    if (sub === "move" && config.allow_overlap !== "1") {
+    if (record && Number(merged.required_staff) <= 0)
+      check(
+        !rows.staff_blocked_sessions.some((r) => r.session_id === id),
+        "個別配置を終了する前に、このセッションの配置制限を解除してください",
+        409,
+      );
+    const timeChanged =
+      !record ||
+      merged.start_time !== record.start_time ||
+      merged.end_time !== record.end_time;
+    const edited = {
+      ...merged,
+      required_staff: Number(merged.required_staff ?? 1),
+    } as unknown as Session;
+    if (timeChanged || merged.required_staff !== record?.required_staff) {
+      const assignedSessions = new Set(
+        data.assignments.map((a) => a.session_id),
+      );
+      if (edited.required_staff === -1)
+        check(
+          !data.sessions.some(
+            (s) =>
+              s.id !== id &&
+              assignedSessions.has(s.id) &&
+              overlapsAllHands(s, [edited]),
+          ),
+          "すでに個別シフトが入っています。配置または全員参加の時間を変更してください",
+          409,
+        );
+      else if (assignedSessions.has(id))
+        check(
+          !overlapsAllHands(
+            edited,
+            data.sessions.filter((s) => s.id !== id),
+          ),
+          "全員参加の時間には個別シフトを入れられません",
+          409,
+        );
+    }
+    if (
+      record &&
+      (timeChanged || merged.room_id !== record.room_id) &&
+      config.allow_overlap !== "1" &&
+      edited.required_staff !== -1
+    ) {
       const assigned = new Set(
         data.assignments
           .filter((a) => a.session_id === id)
@@ -457,35 +599,48 @@ export async function resources(
       for (const a of data.assignments.filter(
         (a) => a.session_id !== id && assigned.has(a.staff_id),
       )) {
+        const other = data.sessions.find((s) => s.id === a.session_id)!;
         check(
-          !conflicts(
-            merged as unknown as Session,
-            data.sessions.find((s) => s.id === a.session_id)!,
-            Number(config.travel_buffer_minutes ?? 10),
-          ),
+          other.required_staff === -1 ||
+            !conflicts(edited, other, travelMinutes(config)),
           "時間が重複するか移動時間が不足しています",
         );
       }
     }
   }
   if (table === "assignments") {
-    const s = data.sessions.find((s) => s.id === values.session_id),
-      st = data.staffs.find((st) => st.id === values.staff_id);
+    const s = data.sessions.find((s) => s.id === merged.session_id),
+      st = data.staffs.find((st) => st.id === merged.staff_id);
     check(s && st, "セッションまたはスタッフが見つかりません", 404);
+    check(
+      !overlapsAllHands(s, data.sessions),
+      "全員参加の時間には個別シフトを入れられません",
+      409,
+    );
+    check(
+      !rows.staff_blocked_sessions.some(
+        (r) => r.staff_id === st.id && r.session_id === s.id,
+      ),
+      "このスタッフには、このセッションの配置制限があります",
+      409,
+    );
     check(
       s.category === "overall" ||
         st.role.some((r) => permittedRoles(data, s, config).includes(r)),
       "担当ロールが一致しません",
     );
-    for (const a of data.assignments.filter((a) => a.staff_id === st.id)) {
+    for (const a of data.assignments.filter(
+      (a) => a.staff_id === st.id && a.id !== record?.id,
+    )) {
       check(a.session_id !== s.id, "配置済みです");
-      if (config.allow_overlap !== "1")
+      const other = data.sessions.find((x) => x.id === a.session_id)!;
+      if (
+        config.allow_overlap !== "1" &&
+        s.required_staff !== -1 &&
+        other.required_staff !== -1
+      )
         check(
-          !conflicts(
-            s,
-            data.sessions.find((x) => x.id === a.session_id)!,
-            Number(config.travel_buffer_minutes ?? 10),
-          ),
+          !conflicts(s, other, travelMinutes(config)),
           "時間または移動時間が重複します",
         );
     }
@@ -493,11 +648,9 @@ export async function resources(
   // The revision check serializes allocations based on this snapshot. Child rows
   // can reference the new ID in the same atomic batch, including a staff's preferences.
   const target = record ? id : (sequences[table] ?? 0) + 1;
-  changes.push(
-    record
-      ? update(db, table, id, values)
-      : insert(db, table, { ...values, id: target }),
-  );
+  if (!record) changes.push(insert(db, table, { ...values, id: target }));
+  else if (Object.keys(values).length)
+    changes.push(update(db, table, id, values));
   if (table === "staffs") {
     for (const [key, child] of [
       ["skills", "staff_skills_v2"],
@@ -505,6 +658,13 @@ export async function resources(
       ["preferred_sessions", "staff_preferred_sessions"],
     ] as const) {
       if (!Array.isArray(body[key])) continue;
+      if (key === "preferred_sessions") {
+        const ids = body[key].map((p: Row) => Number(p.session_id));
+        check(
+          new Set(ids).size === ids.length,
+          "希望セッションが重複しています",
+        );
+      }
       changes.push(
         db.prepare("DELETE FROM " + child + " WHERE staff_id=?").bind(target),
       );
@@ -518,6 +678,9 @@ export async function resources(
       }
     }
   }
+  check(changes.length, "変更項目がありません");
+  if (table === "staffs" && Array.isArray(body.preferred_sessions))
+    changes.push(await adminPreferenceGuard(db));
   await write(db, version, changes);
   const fresh = view((await snapshot(db)).rows);
   const lists: Record<string, { id: number }[]> = {

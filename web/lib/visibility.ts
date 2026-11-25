@@ -23,6 +23,7 @@ export function participantRows(rows: Rows, staffId: number | null): Rows {
   return {
     ...rows,
     app_settings: [],
+    staff_blocked_sessions: [],
     sessions: rows.sessions.map(({ notes, ...session }) => session),
     staffs: rows.staffs.map((staff) =>
       staff.id === staffId

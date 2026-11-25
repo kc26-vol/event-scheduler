@@ -13,7 +13,9 @@ import {
   type Row,
   type Table,
 } from "./db";
-import { fields } from "./resources";
+import { durationRange, fields } from "./resources";
+import { overlapsAllHands } from "./assign";
+import type { Session } from "./types";
 
 const safeImage = /^uploads\/[\w.-]+\.(jpg|jpeg|gif|webp|png)$/i;
 const maxBytes = 32 * 1024 * 1024;
@@ -38,6 +40,7 @@ export async function backup(env: Bindings, rows: Rows) {
     session_groups: d.groups,
     sessions: d.sessions.map(({ room, ...s }) => s),
     assignments: d.assignments,
+    blocked_sessions: rows.staff_blocked_sessions,
     settings: rows.app_settings,
     staffs: d.staffs.map((s) => ({
       ...s,
@@ -138,6 +141,7 @@ export async function restore(env: Bindings, file: File, revision: number) {
   ] as const)
     for (const r of data[t] ?? []) add(t, r);
   for (const s of data.sessions) {
+    durationRange(s);
     add("sessions", s);
     for (const t of s.lt_talks ?? []) add("lt_talks", t, { session_id: s.id });
   }
@@ -154,7 +158,39 @@ export async function restore(env: Bindings, file: File, revision: number) {
     for (const p of s.preferred_sessions ?? [])
       add("staff_preferred_sessions", p, { staff_id: s.id });
   }
-  for (const a of data.assignments ?? []) add("assignments", a);
+  if (data.blocked_sessions !== undefined) {
+    check(
+      Array.isArray(data.blocked_sessions),
+      "配置制限の形式を確認してください",
+    );
+    const assignable = new Set(
+      data.sessions
+        .filter((s: Row) => Number(s.required_staff ?? 1) > 0)
+        .map((s: Row) => s.id),
+    );
+    for (const block of data.blocked_sessions) {
+      check(
+        block && assignable.has(block.session_id),
+        "個別配置の対象外のセッションに配置制限があります",
+      );
+      add("staff_blocked_sessions", block);
+    }
+  }
+  const sessions: Session[] = data.sessions.map((s: Session) => ({
+    ...s,
+    required_staff: Number(s.required_staff ?? 1),
+  }));
+  const bySession = new Map(sessions.map((s) => [s.id, s]));
+  const allHands = sessions.filter((s) => s.required_staff === -1);
+  for (const a of data.assignments ?? []) {
+    const session = bySession.get(Number(a.session_id));
+    check(
+      session && !overlapsAllHands(session, allHands),
+      "バックアップの配置を確認してください。全員参加の時間には個別シフトを入れられません",
+      409,
+    );
+    add("assignments", a);
+  }
   for (const s of data.settings ?? [])
     if (
       !retained.includes(s.key) &&
