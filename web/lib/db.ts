@@ -14,6 +14,7 @@ export interface Bindings {
   STORAGE: R2Bucket;
   IMAGES?: ImagesBinding;
   GEOIP_ENABLED?: string;
+  DEVELOPMENT_ROLE_SWITCH?: string;
   APP_ORIGIN?: string;
   AUTH_EMAIL_FROM?: string;
   MAILER?: {

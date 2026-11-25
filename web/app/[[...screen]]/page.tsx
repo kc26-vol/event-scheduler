@@ -37,6 +37,7 @@ export default async function Page({
     <Workspace
       path={path}
       admin={admin}
+      canSwitchView={account.canSwitchView}
       staffId={account.staff_id}
       offlineShell={offlineShell}
       title={(await setting(env.DB, "app_title")) || "Event Scheduler"}

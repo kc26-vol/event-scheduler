@@ -336,6 +336,136 @@ test("only admins can manage the email directory or access administration routes
   assert.equal((await staff("/api/workspace")).status, 401);
 });
 
+test("development role switching is disabled by default and requires a signed-in administrator", async (t) => {
+  const base = {
+    ...(await scheduler(t)),
+    DEVELOPMENT_ROLE_SWITCH: undefined,
+  };
+  const email = "development-admin@example.test";
+  await seedLocalAdmin(base.DB, email);
+  const adminCookie = await loginFixture(base.DB, email);
+  const endpoint = "/auth/development-view";
+  const disabled = await request(
+    base,
+    endpoint,
+    "POST",
+    { role: "staff" },
+    adminCookie,
+  );
+  assert.equal(disabled.status, 404);
+  assert.equal(disabled.headers.has("set-cookie"), false);
+
+  const env = { ...base, DEVELOPMENT_ROLE_SWITCH: "1" };
+  assert.equal(
+    (await request(env, endpoint, "POST", { role: "admin" })).status,
+    401,
+  );
+  assert.equal(
+    (
+      await request(
+        env,
+        "/api/accounts",
+        "POST",
+        { email: "development-staff@example.test", role: "staff" },
+        adminCookie,
+      )
+    ).status,
+    201,
+  );
+  const staffCookie = await loginFixture(
+    env.DB,
+    "development-staff@example.test",
+  );
+  for (const role of ["staff", "admin"]) {
+    const denied = await request(env, endpoint, "POST", { role }, staffCookie);
+    assert.equal(denied.status, 403, role);
+    assert.equal(denied.headers.has("set-cookie"), false, role);
+  }
+  assert.equal(
+    (await request(env, endpoint, "POST", { role: "owner" }, adminCookie))
+      .status,
+    400,
+  );
+});
+
+test("an administrator can preview staff permissions and restore their own session without changing another session", async (t) => {
+  const env = {
+    ...(await scheduler(t)),
+    DEVELOPMENT_ROLE_SWITCH: "1",
+  };
+  const email = "preview-admin@example.test";
+  await seedLocalAdmin(env.DB, email);
+  const original = await loginFixture(env.DB, email);
+  const otherSession = await loginFixture(env.DB, email);
+  await env.DB.prepare(
+    "INSERT INTO staffs(name,emergency_contact) VALUES('Preview Crew','preview-private-contact')",
+  ).run();
+  const privateData = /preview-private-contact/;
+  const workspace = (cookie: string) =>
+    request(env, "/api/workspace", "GET", undefined, cookie);
+  const directory = (cookie: string) =>
+    request(env, "/api/accounts", "GET", undefined, cookie);
+  const createRoom = (cookie: string) =>
+    request(env, "/api/rooms", "POST", { name: "Room", capacity: 2 }, cookie);
+  const switchView = (cookie: string, role: "admin" | "staff") =>
+    request(env, "/auth/development-view", "POST", { role }, cookie);
+  assert.match(await (await workspace(original)).text(), privateData);
+
+  const switched = await switchView(original, "staff");
+  assert.equal(switched.status, 204);
+  const viewCookie = switched.headers
+    .getSetCookie()
+    .find((header) => header.startsWith("es_staff_view="));
+  assert.ok(viewCookie);
+  assert.match(viewCookie, /^es_staff_view=[^;]+;/);
+  for (const attribute of ["HttpOnly", "Secure", "SameSite=Lax"])
+    assert.ok(viewCookie.includes(attribute), attribute);
+  const preview = cookies(original, switched);
+  const staffWorkspace = await workspace(preview);
+  assert.equal(staffWorkspace.status, 200);
+  const payload = await staffWorkspace.text();
+  assert.match(payload, /Preview Crew/);
+  assert.doesNotMatch(payload, privateData);
+  assert.equal((await directory(preview)).status, 403);
+  assert.equal((await createRoom(preview)).status, 403);
+
+  for (const cookie of [otherSession, cookies(otherSession, switched)]) {
+    assert.match(await (await workspace(cookie)).text(), privateData);
+    const response = await directory(cookie);
+    assert.equal(response.status, 200);
+    const accounts = (await response.json()) as {
+      email: string;
+      role: string;
+    }[];
+    assert.deepEqual(
+      accounts.map(({ email, role }) => ({ email, role })),
+      [{ email, role: "admin" }],
+    );
+  }
+  const disabled = { ...env, DEVELOPMENT_ROLE_SWITCH: undefined };
+  assert.match(
+    await (
+      await request(disabled, "/api/workspace", "GET", undefined, preview)
+    ).text(),
+    privateData,
+  );
+
+  const restored = await switchView(preview, "admin");
+  assert.equal(restored.status, 204);
+  assert.ok(
+    restored.headers
+      .getSetCookie()
+      .some(
+        (header) =>
+          /^es_staff_view=;/.test(header) && header.includes("Max-Age=0"),
+      ),
+  );
+  const adminAgain = cookies(preview, restored);
+  assert.match(await (await workspace(adminAgain)).text(), privateData);
+  assert.equal((await directory(adminAgain)).status, 200);
+  assert.equal((await createRoom(adminAgain)).status, 201);
+});
+
 test("Google links the verified identity after email redemption and signs it in again", async (t) => {
   const email = "google-admin@example.test",
     subject = "google-account-89",

@@ -3,6 +3,7 @@ import {
   type Account,
   EventInitializationError,
   cookie,
+  currentAccount,
   currentEnrollment,
   digest,
   emailAddress,
@@ -10,6 +11,8 @@ import {
   completeIdentity,
   sessionHeaders,
   setCookie,
+  staffViewCookie,
+  staffViewMarker,
   token,
 } from "./accounts";
 import {
@@ -160,7 +163,13 @@ export async function accountRoute(
       "Cache-Control": "no-store",
       "Clear-Site-Data": '"cache", "cookies", "storage"',
     });
-    for (const name of ["es_session", "es_offline", "es_line", "cs_session"])
+    for (const name of [
+      "es_session",
+      "es_offline",
+      "es_line",
+      "cs_session",
+      staffViewCookie,
+    ])
       setCookie(headers, name, "", 0);
     return new Response(null, { status: 303, headers });
   }
@@ -268,6 +277,21 @@ export async function accountRoute(
     return new Response(null, { status: 303, headers });
   }
   check(req.method === "POST", "Method not allowed", 405);
+  if (action === "development-view") {
+    check(env.DEVELOPMENT_ROLE_SWITCH === "1", "Not found", 404);
+    const account = await currentAccount(req, env);
+    check(account, "ログインが必要です", 401);
+    check(account.canSwitchView, "管理者権限が必要です", 403);
+    const staff = role((await body(req)).role) === "staff";
+    const headers = new Headers();
+    setCookie(
+      headers,
+      staffViewCookie,
+      staff ? staffViewMarker(req) : "",
+      staff ? 7 * 86400 : 0,
+    );
+    return new Response(null, { status: 204, headers });
+  }
   if (action === "line-start") {
     const enroll = await currentEnrollment(req, env);
     const state = token(),

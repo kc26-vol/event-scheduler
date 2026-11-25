@@ -66,6 +66,7 @@ test("provision missing environment resources, then reuse their IDs on retry", a
         : "https://" + name + ".example.workers.dev",
     );
     assert.equal(result.config.vars.APP_ORIGIN, result.url);
+    assert.equal(result.config.vars.DEVELOPMENT_ROLE_SWITCH, "1");
     assert.deepEqual(result.config.send_email, [
       { name: "MAILER", allowed_sender_addresses: ["staff@example.org"] },
     ]);
@@ -83,6 +84,30 @@ test("provision missing environment resources, then reuse their IDs on retry", a
     prepare("prod", account, "test", request as typeof fetch),
     /staging or production/,
   );
+});
+
+test("production deployments omit the development role switch", async () => {
+  const request = async (url: string) => {
+    const name = "event-scheduler-production";
+    const result = url.includes("/workers/subdomain")
+      ? { subdomain: "example" }
+      : url.includes("/d1/database")
+        ? [{ name, uuid: "00000000-0000-4000-8000-000000000021" }]
+        : { name: name + "-storage" };
+    return Response.json({ success: true, result });
+  };
+  const { config } = await prepare(
+    "production",
+    "a".repeat(32),
+    "token",
+    request as typeof fetch,
+    {
+      AUTH_EMAIL_FROM: "staff@example.org",
+      LINE_CHANNEL_ID: "1234",
+      DEVELOPMENT_ROLE_SWITCH: "1",
+    },
+  );
+  assert.equal(config.vars.DEVELOPMENT_ROLE_SWITCH, undefined);
 });
 
 test("reject incomplete login settings before provisioning storage", async () => {

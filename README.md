@@ -80,6 +80,8 @@ INITIAL_ADMIN_EMAIL=admin@example.test make dev
 
 利用するプロバイダーの開発用設定を `web/.dev.vars` に記入します。初回の `make dev` が指定メールを管理者として D1 の名簿に追加します。ブラウザで `http://localhost:3000/register` を開き、そのアドレスで初回登録してください。次回以降は `make dev` のみで起動できます。`APP_ORIGIN` にはブラウザで実際に開く URL を設定します。Firebase をローカルで試す場合は `localhost` を承認済みドメインに加えてください。Wrangler のローカルメール送信はシミュレーションで、登録用メールをローカルで確認できます。[メール・Google・LINE の設定](.github/workflows/README.md#スタッフ個別ログインの準備)・[Wrangler のローカルメール確認](https://developers.cloudflare.com/email-service/observability/local-development/sending/)
 
+開発中にスタッフ画面を確認するには、`web/.dev.vars` に `DEVELOPMENT_ROLE_SWITCH=1` を設定して開発サーバーを再起動します。管理者としてログインすると、管理者表示とスタッフ表示を切り替えられます。スタッフ表示では、ログイン中のアカウントに紐付いた担当表が表示され、API にもスタッフ権限が適用されます。staging ではこの切り替えが有効です。
+
 | コマンド | 用途 |
 |---|---|
 | `make test` | TypeScript、スケジューラ、D1・R2 のテスト |
