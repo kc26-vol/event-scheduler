@@ -1,4 +1,6 @@
-import { auth, signedIn, setting, verify, hash, equal } from "./auth";
+import { cookie, currentAccount, digest } from "./accounts";
+import { accountRoute, directoryRoute } from "./account-routes";
+import { participantRead, participantRows } from "./visibility";
 import {
   check,
   HttpError,
@@ -21,7 +23,28 @@ import {
   nextBackup,
 } from "./backup";
 
-export async function handle(req: Request, env: Bindings, path: string[]) {
+export async function handle(
+  req: Request,
+  env: Bindings,
+  path: string[],
+  ctx?: Pick<ExecutionContext, "waitUntil">,
+) {
+  const response = await dispatch(req, env, path, ctx);
+  if (path[0] !== "public") {
+    // Redirects may have immutable headers; preserve all Set-Cookie values.
+    const result = new Response(response.body, response);
+    result.headers.set("Cache-Control", "private, no-store");
+    return result;
+  }
+  return response;
+}
+
+async function dispatch(
+  req: Request,
+  env: Bindings,
+  path: string[],
+  ctx?: Pick<ExecutionContext, "waitUntil">,
+) {
   try {
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
       const origin = req.headers.get("origin");
@@ -42,7 +65,8 @@ export async function handle(req: Request, env: Bindings, path: string[]) {
       return await publishing(req, env, parts, true);
     if (env.GEOIP_ENABLED === "1")
       check(req.headers.get("cf-ipcountry") === "JP", "Access restricted", 403);
-    if (prefix === "auth" && !parts.length) return await auth(req, env, area);
+    if (prefix === "auth" && !parts.length)
+      return await accountRoute(req, env, area, ctx);
     if (
       prefix === "api" &&
       area === "health" &&
@@ -57,9 +81,23 @@ export async function handle(req: Request, env: Bindings, path: string[]) {
         { headers: { "Cache-Control": "no-store" } },
       );
     }
-    check(signedIn(req, env), "ログインが必要です", 401);
+    const account = await currentAccount(req, env);
+    check(account, "ログインが必要です", 401);
+    const admin = account.role === "admin";
     if (prefix === "uploads" && !route && req.method === "GET") {
       check(/^[\w.-]+\.(png|gif|jpe?g|webp)$/i.test(area), "Not found", 404);
+      if (!admin) {
+        const url = "/uploads/" + area;
+        const referenced = await env.DB.prepare(
+          "SELECT 1 WHERE EXISTS(SELECT 1 FROM staffs WHERE photo=?1) " +
+            "OR EXISTS(SELECT 1 FROM sessions WHERE speaker_photo=?1) " +
+            "OR EXISTS(SELECT 1 FROM lt_talks WHERE speaker_photo=?1) " +
+            "OR EXISTS(SELECT 1 FROM venue_maps WHERE image=?1)",
+        )
+          .bind(url)
+          .first();
+        check(referenced, "Not found", 404);
+      }
       const object = await env.STORAGE.get("uploads/" + area);
       check(object, "Not found", 404);
       return new Response(object.body, {
@@ -73,47 +111,46 @@ export async function handle(req: Request, env: Bindings, path: string[]) {
       });
     }
     check(prefix === "api", "Not found", 404);
-    if (area === "workspace" && !route && req.method === "GET")
-      return Response.json(view((await snapshot(env.DB)).rows), {
-        headers: { "Cache-Control": "private, no-store" },
-      });
+    if (
+      (area === "workspace" || area === "offline") &&
+      !route &&
+      req.method === "GET"
+    ) {
+      const { rows } = await snapshot(env.DB);
+      if (area === "offline") {
+        const headers = {
+          "X-Offline-Scope": digest("offline:" + cookie(req, "es_session")),
+        };
+        return Response.json(view(participantRows(rows, null)), { headers });
+      }
+      return Response.json(
+        view(admin ? rows : participantRows(rows, account.staff_id)),
+      );
+    }
+    if (!admin)
+      check(
+        req.method === "GET" && participantRead([area, ...parts]),
+        "管理者権限が必要です",
+        403,
+      );
+    if (area === "accounts")
+      return await directoryRoute(req, env, account, parts);
     if (area === "public-api") return await publishing(req, env, parts);
     const db = env.DB,
       ok = () => Response.json({ status: "ok" });
     if (area === "settings" || area === "export" || area === "backup") {
       const { rows, version } = await snapshot(db),
         config = settings(rows.app_settings);
-      if (
-        req.method === "POST" &&
-        ((area === "settings" && route === "change-password") ||
-          (area === "export" && ["reset-password", "reset"].includes(route)))
-      ) {
-        const b = await bodyOf(req),
-          login = area === "settings",
-          key = login ? "login_password" : "reset_password",
-          bound = login ? env.APP_PASSWORD : env.RESET_PASSWORD;
-        const pwd = String(b.current_password ?? b.password ?? "");
-        check(
-          bound ? equal(pwd, bound) : verify(pwd, config[key] || ""),
-          "パスワードが正しくありません",
-          403,
-        );
-        if (route === "reset")
-          await write(db, version, [
-            ...tables
-              .filter((t) => t !== "app_settings")
-              .reverse()
-              .map((t) => db.prepare("DELETE FROM " + t)),
-            db.prepare("DELETE FROM app_settings WHERE key='app_title'"),
-          ]);
-        else {
-          check(!bound, "Worker secret で管理されています");
-          check(
-            b.new_password && typeof b.new_password === "string",
-            "新しいパスワードが必要です",
-          );
-          await write(db, version, [putSetting(db, key, hash(b.new_password))]);
-        }
+      if (area === "export" && route === "reset" && req.method === "POST") {
+        const b = await bodyOf(req);
+        check(b.confirmation === "RESET", "RESET と入力してください");
+        await write(db, version, [
+          ...tables
+            .filter((t) => t !== "app_settings")
+            .reverse()
+            .map((t) => db.prepare("DELETE FROM " + t)),
+          db.prepare("DELETE FROM app_settings WHERE key='app_title'"),
+        ]);
         return ok();
       }
       if (area === "settings" && !route) {
@@ -253,7 +290,12 @@ export async function handle(req: Request, env: Bindings, path: string[]) {
       }
       throw new HttpError(404, "Not found");
     }
-    return await resources(req, env, [area, ...parts]);
+    return await resources(
+      req,
+      env,
+      [area, ...parts],
+      admin ? undefined : account.staff_id,
+    );
   } catch (e) {
     if (e instanceof HttpError)
       return Response.json({ detail: e.message }, { status: e.status });

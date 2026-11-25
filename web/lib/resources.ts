@@ -12,6 +12,7 @@ import {
   type Schedule,
 } from "./db";
 import { plan, permittedRoles, conflicts } from "./assign";
+import { participantRows } from "./visibility";
 import type { Session } from "./types";
 export const columns = {
   rooms: "name capacity floor",
@@ -142,7 +143,12 @@ function summaries(data: Schedule) {
   }));
 }
 const noContent = () => new Response(null, { status: 204 });
-export async function resources(req: Request, env: Bindings, path: string[]) {
+export async function resources(
+  req: Request,
+  env: Bindings,
+  path: string[],
+  staffId?: number | null,
+) {
   const [resource, part, sub, last, extra] = path,
     db = env.DB,
     method = req.method;
@@ -158,7 +164,7 @@ export async function resources(req: Request, env: Bindings, path: string[]) {
   const table = names[resource];
   check(table, "Not found", 404);
   const { rows, version, sequences } = await snapshot(db),
-    data = view(rows),
+    data = view(staffId === undefined ? rows : participantRows(rows, staffId)),
     config = settings(rows.app_settings);
   const all: Record<string, unknown[]> = {
     rooms: data.rooms,
