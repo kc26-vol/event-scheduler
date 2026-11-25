@@ -1,12 +1,6 @@
 "use client";
 import { useState } from "react";
-export default function Login({
-  setup,
-  title,
-}: {
-  setup?: boolean;
-  title: string;
-}) {
+export default function Login({ title }: { title: string }) {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   return (
@@ -17,7 +11,7 @@ export default function Login({
           setBusy(true);
           setError("");
           try {
-            const r = await fetch("/auth/" + (setup ? "setup" : "verify"), {
+            const r = await fetch("/auth/verify", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(
@@ -26,52 +20,25 @@ export default function Login({
             });
             if (!r.ok)
               throw Error(((await r.json()) as { detail: string }).detail);
-            location.replace(setup ? "/login.html" : "/");
+            location.replace("/");
           } catch (e) {
             setError(String((e as Error).message));
             setBusy(false);
           }
         }}
       >
-        <h1>{setup ? "初期設定" : title}</h1>
-        {setup && (
-          <>
-            <label>
-              セットアップトークン
-              <input name="setup_token" type="password" required />
-            </label>
-            <label>
-              イベント名
-              <input name="app_title" required />
-            </label>
-            <label>
-              タイムゾーン
-              <input name="timezone" defaultValue="Asia/Tokyo" required />
-            </label>
-          </>
-        )}
+        <h1>{title}</h1>
         <label>
-          {setup ? "ログインパスワード" : "パスワード"}
+          パスワード
           <input
-            name={setup ? "login_password" : "password"}
+            name="password"
             type="password"
-            autoComplete={setup ? "new-password" : "current-password"}
+            autoComplete="current-password"
             required
           />
         </label>
-        {setup && (
-          <label>
-            管理者パスワード
-            <input
-              name="admin_password"
-              type="password"
-              autoComplete="new-password"
-              required
-            />
-          </label>
-        )}
         {error && <p role="alert">{error}</p>}
-        <button disabled={busy}>{setup ? "設定を保存" : "ログイン"}</button>
+        <button disabled={busy}>ログイン</button>
       </form>
     </main>
   );

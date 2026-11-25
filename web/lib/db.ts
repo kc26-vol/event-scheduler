@@ -14,7 +14,6 @@ export interface Bindings {
   STORAGE: R2Bucket;
   IMAGES?: ImagesBinding;
   SESSION_SECRET: string;
-  SETUP_TOKEN?: string;
   APP_PASSWORD?: string;
   RESET_PASSWORD?: string;
   GEOIP_ENABLED?: string;
