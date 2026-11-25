@@ -1,0 +1,401 @@
+:root {
+  color-scheme: light;
+  font-family: "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+  color: #203b32;
+  background: #f7f8f4;
+  line-height: 1.55;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+a {
+  color: #245b4b;
+  text-underline-offset: 0.22em;
+}
+button,
+.button {
+  background: #245747;
+  color: white;
+  border: 1px solid #245747;
+  border-radius: 7px;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #d69f45;
+  outline-offset: 2px;
+}
+.light {
+  background: white;
+  color: #245747;
+  border-color: #c7d4cb;
+}
+.danger {
+  color: #9d322b;
+  background: white;
+  border-color: #d9c3bc;
+}
+.shell {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-rows: 62px 1fr;
+  min-height: 100vh;
+}
+header {
+  grid-column: 1/-1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #193e34;
+  color: white;
+  padding: 0 1.5rem;
+}
+.brand {
+  color: white;
+  text-decoration: none;
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: 0.015em;
+}
+.status {
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+.menu {
+  display: none;
+}
+aside {
+  background: #edf2eb;
+  border-right: 1px solid #d1dcd2;
+  padding: 1rem 0.65rem;
+}
+nav {
+  display: grid;
+  gap: 1px;
+}
+nav a {
+  display: block;
+  color: #344f45;
+  text-decoration: none;
+  font-size: 0.86rem;
+  padding: 0.49rem 0.85rem;
+  border-radius: 5px;
+}
+nav a:hover,
+nav a[aria-current] {
+  background: #d7e5d9;
+  color: #143b2b;
+}
+nav a[aria-current] {
+  font-weight: 700;
+}
+main {
+  padding: clamp(1rem, 3vw, 2.6rem);
+  max-width: 1250px;
+  width: 100%;
+  margin-inline: auto;
+}
+h1 {
+  font-size: clamp(1.5rem, 3.2vw, 2.15rem);
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+h2 {
+  font-size: 1.2rem;
+  margin: 1.8rem 0 0.8rem;
+}
+.pageheading,
+.row,
+.filters,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.pageheading,
+.row {
+  justify-content: space-between;
+}
+.pageheading {
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid #cad6cc;
+  margin-bottom: 1.1rem;
+}
+.filters {
+  margin: 1rem 0;
+  align-items: flex-end;
+}
+.row,
+.shift {
+  border: 1px solid #d9e2d9;
+  border-radius: 8px;
+  background: white;
+  padding: 0.9rem 1rem;
+  margin: 0.55rem 0;
+}
+.row small,
+time strong {
+  display: block;
+}
+.shift {
+  display: grid;
+  grid-template-columns: 145px 1fr;
+  gap: 1rem;
+}
+.shift time,
+small {
+  color: #56685e;
+  font-size: 0.82rem;
+}
+.shift strong {
+  color: #203b32;
+}
+.shift p {
+  margin: 0.3rem 0;
+}
+.titlebutton {
+  background: none;
+  color: #193e34;
+  border: 0;
+  padding: 0;
+  font-size: 1.08rem;
+  text-align: left;
+  font-weight: 700;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.chips a {
+  background: #ebf3ec;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+label {
+  display: block;
+  font-size: 0.9rem;
+  color: #334c40;
+}
+input,
+textarea,
+select {
+  width: 100%;
+  min-height: 2.6rem;
+  border: 1px solid #bdcbbf;
+  border-radius: 5px;
+  background: white;
+  color: #1f352a;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+}
+input[type="checkbox"] {
+  vertical-align: middle;
+  width: 1.1rem;
+  min-height: initial;
+  height: 1.1rem;
+  margin-right: 0.5rem;
+}
+textarea {
+  min-height: 5rem;
+}
+form {
+  display: grid;
+  gap: 0.75rem;
+}
+form button {
+  justify-self: start;
+}
+.filters label {
+  min-width: 155px;
+}
+.operations {
+  max-width: 720px;
+}
+.operations form {
+  background: white;
+  border: 1px solid #d7e0d6;
+  padding: 1rem;
+  border-radius: 8px;
+  margin: 0.8rem 0;
+}
+.actions {
+  gap: 0.45rem;
+}
+.formgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+dialog[open] {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  max-height: 86dvh;
+  overflow: auto;
+  width: min(650px, 94vw);
+  border: 1px solid #b6c6b8;
+  border-radius: 12px;
+  box-shadow: 0 0 0 100vmax #102e2160;
+  z-index: 8;
+  padding: 1.4rem;
+}
+.right {
+  float: right;
+}
+.avatar {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+figure img {
+  max-width: 100%;
+}
+.auth {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+}
+.auth form {
+  width: min(420px, 90vw);
+  background: white;
+  box-shadow: 0 4px 24px #203b3210;
+  border: 1px solid #d3dfd4;
+  border-radius: 10px;
+  padding: 2rem;
+}
+.auth h1 {
+  margin-bottom: 1rem;
+}
+[role="alert"] {
+  color: #97352b;
+  background: #fff0ed;
+  padding: 0.7rem;
+}
+[role="status"] {
+  background: #e5f1e8;
+  padding: 0.6rem;
+}
+@media (max-width: 760px) {
+  .shell {
+    display: block;
+  }
+  .menu {
+    display: block;
+    background: transparent;
+    border: 0;
+    font-size: 1.1rem;
+    padding: 0.2rem;
+  }
+  .shell header {
+    height: 56px;
+    padding: 0 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  .shell aside {
+    display: none;
+  }
+  .shell aside.open {
+    display: block;
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    width: 215px;
+    overflow: auto;
+    z-index: 5;
+    box-shadow: 0 0 0 100vmax #263e342b;
+  }
+  .shift {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+  .shift time strong {
+    display: inline;
+    margin-left: 0.7rem;
+  }
+  .formgrid {
+    grid-template-columns: 1fr;
+  }
+  .filters label {
+    flex: 1;
+  }
+  .status {
+    font-size: 0.7rem;
+  }
+}
+.scrolltable {
+  overflow-x: auto;
+  margin: 1rem 0 2rem;
+}
+.timetable table {
+  border-collapse: collapse;
+  width: 100%;
+  background: white;
+}
+.timetable caption {
+  text-align: left;
+  font-weight: 700;
+  padding: 0.45rem 0;
+}
+.timetable th,
+.timetable td {
+  border: 1px solid #c9d5cd;
+  padding: 0.45rem;
+  text-align: left;
+  vertical-align: top;
+}
+.timetable th {
+  background: #eef3ef;
+}
+.timetable .entry {
+  display: block;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  text-align: left;
+  padding: 0.3rem;
+}
+@media print {
+  .shell header,
+  .shell aside,
+  .pageheading button,
+  .filters,
+  .print {
+    display: none;
+  }
+  .shell {
+    display: block;
+  }
+  main {
+    padding: 0;
+  }
+  .scrolltable {
+    overflow: visible;
+  }
+  tr {
+    break-inside: avoid;
+  }
+}
